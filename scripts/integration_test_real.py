@@ -26,24 +26,20 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-# 确保项目根目录在 sys.path 中
+# 确保项目根目录在 sys.path 中（必须在 core.env 导入之前）
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
-from dotenv import load_dotenv
+from core.env import setup_environment  # noqa: E402
 
-_env_path = _project_root / ".env"
-if _env_path.exists():
-    load_dotenv(_env_path)
-else:
-    load_dotenv()
+setup_environment(_project_root)
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.types import Command
+from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
+from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
+from langgraph.types import Command  # noqa: E402
 
-from core.model import get_chat_model
-from core.prompts import (
+from core.model import get_chat_model  # noqa: E402
+from core.prompts import (  # noqa: E402
     FINAL_SUMMARY_PROMPT,
     OPPONENT_SYSTEM_PROMPT,
     PRESENTER_SYSTEM_PROMPT,
@@ -53,8 +49,8 @@ from core.prompts import (
     presenter_prompt,
     referee_prompt,
 )
-from core.schemas import RefereeJudgment, RoundRecord
-from core.state import AgentState
+from core.schemas import RefereeJudgment, RoundRecord  # noqa: E402
+from core.state import AgentState  # noqa: E402
 
 # =============================================================================
 # 辅助函数
@@ -167,7 +163,7 @@ def test_opponent_agent() -> bool:
         _fail(f"字数超限: {char_count} > 80")
         ok = False
     else:
-        _ok(f"字数 ≤ 80 ✓")
+        _ok("字数 ≤ 80 ✓")
 
     multipoint_markers = ["第一", "第二", "此外", "另外", "同时", "一方面"]
     if any(m in content for m in multipoint_markers):
@@ -609,7 +605,7 @@ def test_workflow_multi_round() -> bool:
         ok = False
     else:
         _ok(f"{len(s['history'])} 轮历史记录完整 ✓")
-        for i, rec in enumerate(s["history"]):
+        for _i, rec in enumerate(s["history"]):
             _info(f"R{rec.round_number}: {rec.thesis_before[:40]}... → {rec.thesis_after[:40]}...")
 
     if s["status"] == "done":

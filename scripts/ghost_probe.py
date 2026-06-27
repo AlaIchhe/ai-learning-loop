@@ -16,18 +16,13 @@ import sys
 import time
 from pathlib import Path
 
-# 确保项目根目录在 sys.path 中
+# 确保项目根目录在 sys.path 中（必须在 core.env 导入之前）
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
-from dotenv import load_dotenv  # noqa: E402
+from core.env import setup_environment  # noqa: E402
 
-# 加载 .env
-_env_path = _project_root / ".env"
-if _env_path.exists():
-    load_dotenv(_env_path)
-else:
-    load_dotenv()
+setup_environment(_project_root)
 
 
 # =============================================================================
@@ -434,7 +429,7 @@ def main():
     print("  👻 幽灵探针 —— LLM 环境健康诊断")
     print("=" * 60)
     print(f"  项目根目录: {_project_root}")
-    print(f"  .env 文件:  {'✅ 存在' if _env_path.exists() else '❌ 不存在'}")
+    print(f"  .env 文件:  {'✅ 存在' if (_project_root / '.env').exists() else '❌ 不存在'}")
 
     results: dict[str, bool] = {}
 
