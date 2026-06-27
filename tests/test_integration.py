@@ -1,265 +1,366 @@
 """
-端到端集成测试 —— 多轮辩论全生命周期。
+端到端集成测试 —— 多轮论题演化全生命周期。
 
-使用 Mock Agent 节点 + 真实 LangGraph 图，
-验证 interrupt_before 暂停/恢复、多轮循环、状态累积。
+使用 Mock LLM 节点 + 真实 LangGraph 图 + 真实 interrupt()/Command(resume=...)。
+验证中断暂停/恢复、多轮循环、状态累积、thesis 演化。
 """
 
-from typing import cast
 from uuid import uuid4
 
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Command, interrupt
 
-from core.schemas import CategoryScores, RefereeJudgment, RoundRecord
+from core.schemas import RoundRecord
 from core.state import AgentState
 from workflow.graph import build_graph
 
 # =============================================================================
-# Mock Agent 节点（模拟完整 LLM 行为，包含状态转移）
+# Mock 节点：模拟完整生命周期（含真实 interrupt()）
 # =============================================================================
 
 
-def _mock_presenter(state: AgentState) -> dict:
-    argument = f"[陈述者] 第{state['round']}轮论点：支持「{state['topic']}」"
-    msg = {"role": "presenter", "content": argument, "round": state["round"]}
+def _mock_opponent_compute(state: AgentState) -> dict:
     return {
-        "presenter_argument": argument,
-        "messages": state["messages"] + [msg],
-        "status": "opposing",
+        "_critique": f"[Critique R{state['round']}] 论题存在模糊之处",
+        "messages": state["messages"] + [{
+            "role": "opponent",
+            "content": f"[Critique R{state['round']}] 论题存在模糊之处",
+            "round": state["round"],
+        }],
+        "status": "awaiting_critique_response",
     }
 
 
-def _mock_opponent(state: AgentState) -> dict:
-    rebuttal = f"[反驳者] 第{state['round']}轮反驳：质疑论点中的漏洞"
-    msg = {"role": "opponent", "content": rebuttal, "round": state["round"]}
+def _mock_opponent_interact(state: AgentState) -> dict:
+    """含真实 interrupt() —— 暂停等待用户回应。"""
+    critique = state["_critique"]
+    user_response = interrupt(critique)
     return {
-        "opponent_rebuttal": rebuttal,
-        "messages": state["messages"] + [msg],
-        "status": "judging",
+        "_user_response": str(user_response),
+        "messages": state["messages"] + [{
+            "role": "user",
+            "content": str(user_response),
+            "round": state["round"],
+        }],
+        "status": "presenter_computing",
     }
 
 
-def _mock_referee(state: AgentState) -> dict:
-    judgment = RefereeJudgment(
-        round=state["round"],
-        presenter_score=CategoryScores(clarity=7.5, logic=6.5, evidence=7.0, persuasiveness=7.0),
-        opponent_score=CategoryScores(clarity=6.0, logic=7.0, evidence=5.5, persuasiveness=6.5),
-        presenter_total=7.0,
-        opponent_total=6.3,
-        winner="presenter",
-        reasoning=f"第{state['round']}轮：陈述者论据更充分。",
-        presenter_strength="结构清晰",
-        presenter_weakness="深度不足",
-        opponent_strength="逻辑严密",
-        opponent_weakness="例证缺乏",
-        improvement_hint="双方应引用更多数据。",
-    )
-    next_status = "done" if state["round"] >= state["max_rounds"] else "presenting"
-    msg = {
-        "role": "referee",
-        "content": (
-            f"[裁判] 第{state['round']}轮：陈述者 {judgment.presenter_total}"
-            f" vs 反驳者 {judgment.opponent_total}，胜者: {judgment.winner}"
-        ),
-        "round": state["round"],
-    }
-    record = RoundRecord(
-        round_number=state["round"],
-        presenter_argument=state["presenter_argument"],
-        opponent_rebuttal=state["opponent_rebuttal"],
-        judgment=judgment,
-    )
+def _mock_presenter_compute(state: AgentState) -> dict:
     return {
-        "referee_judgment": judgment,
-        "messages": state["messages"] + [msg],
-        "history": state["history"] + [record],
-        "status": next_status,
+        "_draft_thesis": f"[Draft R{state['round']}] 精确化后的论题",
+        "messages": state["messages"] + [{
+            "role": "presenter",
+            "content": f"[Draft R{state['round']}] 精确化后的论题",
+            "round": state["round"],
+        }],
+        "status": "awaiting_thesis_confirmation",
     }
 
 
-# =============================================================================
-# 测试
-# =============================================================================
+def _mock_presenter_interact(state: AgentState) -> dict:
+    """含真实 interrupt() —— 暂停等待用户确认。"""
+    draft = state["_draft_thesis"]
+    confirmed = interrupt(draft)
+    return {
+        "_confirmed_thesis": str(confirmed),
+        "messages": state["messages"] + [{
+            "role": "user",
+            "content": str(confirmed),
+            "round": state["round"],
+        }],
+        "status": "referee_deliberating",
+    }
 
 
-class TestEndToEnd:
-    """多轮辩论端到端集成测试。"""
+def _make_mock_referee(
+    continue_debate: bool = True,
+    new_thesis: str = "拼合后的新论题",
+    reasoning: str = "裁判理由",
+    final_result: str = "终局总结。",
+):
+    """构造 mock 裁判节点。"""
 
-    def test_full_two_round_debate(self):
-        """两轮辩论全生命周期：idle → R1(presenter→opponent→referee) → R2 → done。"""
-        checkpointer = MemorySaver()
-        graph = build_graph(
-            _mock_presenter, _mock_opponent, _mock_referee,
-            checkpointer=checkpointer,
+    def _referee(state: AgentState) -> dict:
+        record = RoundRecord(
+            round_number=state["round"],
+            thesis_before=state["current_thesis"],
+            critique=state["_critique"],
+            user_response=state["_user_response"],
+            draft_thesis=state["_draft_thesis"],
+            confirmed_thesis=state["_confirmed_thesis"],
+            thesis_after=new_thesis,
+            continue_debate=continue_debate,
+            referee_reasoning=reasoning,
         )
-        thread_id = str(uuid4())
-        config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
-
-        initial_state: AgentState = {
-            "topic": "AI 是否应该被严格监管？",
-            "round": 1,
-            "max_rounds": 2,
-            "status": "idle",
-            "messages": [],
-            "presenter_argument": "",
-            "opponent_rebuttal": "",
-            "referee_judgment": None,
-            "history": [],
-            "final_result": "",
+        result: dict = {
+            "messages": state["messages"] + [{
+                "role": "referee",
+                "content": f"[Judgment R{state['round']}] {reasoning}",
+                "round": state["round"],
+            }],
+            "history": state["history"] + [record],
         }
+        if continue_debate:
+            result["current_thesis"] = new_thesis
+            result["status"] = "opponent_computing"
+        else:
+            result["status"] = "done"
+            result["final_result"] = final_result
+        return result
 
-        # Step 1: idle → start_node → interrupt_before presenter
-        state = cast(AgentState, graph.invoke(initial_state, config))
-        assert state["status"] == "presenting"
-        assert state["round"] == 1
-        assert len(state["messages"]) == 0  # presenter 尚未执行
-        print("  Step 1 OK: idle → interrupted before presenter")
+    return _referee
 
-        # Step 2: resume → presenter → interrupt_before opponent
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "opposing"
-        assert "第1轮论点" in state["presenter_argument"]
-        assert len(state["messages"]) == 1
-        assert state["messages"][-1]["role"] == "presenter"
-        print("  Step 2 OK: presenter executed → interrupted before opponent")
 
-        # Step 3: resume → opponent → interrupt_before referee
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "judging"
-        assert "第1轮反驳" in state["opponent_rebuttal"]
-        assert len(state["messages"]) == 2
-        assert state["messages"][-1]["role"] == "opponent"
-        print("  Step 3 OK: opponent executed → interrupted before referee")
+# =============================================================================
+# 初始状态构造
+# =============================================================================
 
-        # Step 4: resume → referee (round 1) → interrupt_before presenter (round 2)
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "presenting"  # 准备第 2 轮
-        assert state["round"] == 2  # next_round 已执行
-        assert state["referee_judgment"] is None  # 缓存已清空
-        assert len(state["history"]) == 1
-        assert isinstance(state["history"][0], RoundRecord)
-        assert state["history"][0].round_number == 1
-        assert len(state["messages"]) == 3
-        assert state["messages"][-1]["role"] == "referee"
-        print("  Step 4 OK: referee R1 executed → next_round → interrupted before presenter R2")
 
-        # Step 5: resume → presenter (round 2) → interrupt_before opponent
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "opposing"
-        assert "第2轮论点" in state["presenter_argument"]
-        assert len(state["messages"]) == 4
-        print("  Step 5 OK: presenter R2 executed → interrupted before opponent")
+def _make_initial_state(thesis: str = "AI 应该被严格监管。") -> AgentState:
+    return {
+        "current_thesis": thesis,
+        "round": 1,
+        "status": "idle",
+        "messages": [],
+        "history": [],
+        "final_result": "",
+        "_critique": "",
+        "_user_response": "",
+        "_draft_thesis": "",
+        "_confirmed_thesis": "",
+    }
 
-        # Step 6: resume → opponent (round 2) → interrupt_before referee
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "judging"
-        assert "第2轮反驳" in state["opponent_rebuttal"]
-        assert len(state["messages"]) == 5
-        print("  Step 6 OK: opponent R2 executed → interrupted before referee")
 
-        # Step 7: resume → referee (round 2) → status=done → END
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "done"
-        assert state["round"] == 2  # round 未再递增（done 后不进 next_round）
-        assert len(state["history"]) == 2
-        assert state["history"][0].round_number == 1
-        assert state["history"][1].round_number == 2
-        assert len(state["messages"]) == 6
-        print("  Step 7 OK: referee R2 executed → status=done → END")
+# =============================================================================
+# 单轮生命周期测试
+# =============================================================================
 
-        # 最终状态校验
-        roles = [m["role"] for m in state["messages"]]
-        assert roles == [
-            "presenter", "opponent", "referee",
-            "presenter", "opponent", "referee",
-        ]
-        print(f"  Roles sequence: {roles}")
 
-        assert state["topic"] == "AI 是否应该被严格监管？"
-        print(f"  Topic preserved: {state['topic']}")
+class TestSingleRoundLifecycle:
+    """验证单轮（裁判判定结束）的完整中断-恢复生命周期。"""
 
-        print()
-        print(
-            f"  E2E PASSED: {state['max_rounds']} rounds,"
-            f" {len(state['messages'])} messages, {len(state['history'])} history records"
-        )
-
-    def test_single_round_debate(self):
-        """单轮辩论：max_rounds=1，裁判后直接结束。"""
+    def test_full_single_round(self):
+        """从 idle → done，经过两次 interrupt。"""
         checkpointer = MemorySaver()
         graph = build_graph(
-            _mock_presenter, _mock_opponent, _mock_referee,
+            opponent_compute_node=_mock_opponent_compute,
+            opponent_interact_node=_mock_opponent_interact,
+            presenter_compute_node=_mock_presenter_compute,
+            presenter_interact_node=_mock_presenter_interact,
+            referee_deliberate_node=_make_mock_referee(continue_debate=False),
             checkpointer=checkpointer,
         )
+
         thread_id = str(uuid4())
-        config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
+        config: dict = {"configurable": {"thread_id": thread_id}}
+        initial_state = _make_initial_state("AI 应受监管。")
 
-        state = cast(AgentState, {
-            "topic": "简答题",
-            "round": 1,
-            "max_rounds": 1,
-            "status": "idle",
-            "messages": [],
-            "presenter_argument": "",
-            "opponent_rebuttal": "",
-            "referee_judgment": None,
-            "history": [],
-            "final_result": "",
-        })
+        # ---- Step 1: invoke → 停在第一个 interrupt (critique) ----
+        result = graph.invoke(initial_state, config)
+        assert result["status"] == "awaiting_critique_response"
+        assert result["round"] == 1
+        assert len(result["messages"]) == 1  # 只有 opponent msg
+        assert result["messages"][0]["role"] == "opponent"
 
-        # Step 1: idle → interrupted before presenter
-        state = cast(AgentState, graph.invoke(state, config))
-        assert state["status"] == "presenting"
+        # ---- Step 2: resume with user response → 停在第二个 interrupt (confirmation) ----
+        result = graph.invoke(Command(resume="我同意，但需限定范围。"), config)
+        assert result["status"] == "awaiting_thesis_confirmation"
+        assert len(result["messages"]) == 3  # opponent + user + presenter
+        roles = [m["role"] for m in result["messages"]]
+        assert roles == ["opponent", "user", "presenter"]
 
-        # Step 2: presenter → interrupted before opponent
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "opposing"
+        # ---- Step 3: resume with confirmation → 裁判结束，debate done ----
+        result = graph.invoke(Command(resume="确认：AI应受监管，重点在高风险领域。"), config)
+        assert result["status"] == "done"
+        assert len(result["messages"]) == 5  # o+u+p+u+referee
+        assert len(result["history"]) == 1
+        assert result["final_result"] == "终局总结。"
+        assert result["history"][0].thesis_before == "AI 应受监管。"
 
-        # Step 3: opponent → interrupted before referee
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "judging"
-
-        # Step 4: referee → done (max_rounds=1, no next_round)
-        state = cast(AgentState, graph.invoke(None, config))
-        assert state["status"] == "done"
-        assert state["round"] == 1  # 未递增
-        assert len(state["history"]) == 1
-        assert len(state["messages"]) == 3
-        print("  Single round E2E PASSED")
-
-    def test_graph_get_state_consistency(self):
-        """验证 graph.get_state() 在任何时刻都能读到一致的状态快照。"""
+    def test_round_cache_cleared_after_single_round(self):
+        """验证 done 后轮次缓存字段状态（单轮结束无 next_round）。"""
         checkpointer = MemorySaver()
         graph = build_graph(
-            _mock_presenter, _mock_opponent, _mock_referee,
+            _mock_opponent_compute,
+            _mock_opponent_interact,
+            _mock_presenter_compute,
+            _mock_presenter_interact,
+            _make_mock_referee(continue_debate=False),
             checkpointer=checkpointer,
         )
+
+        config: dict = {"configurable": {"thread_id": str(uuid4())}}
+        graph.invoke(_make_initial_state(), config)
+        graph.invoke(Command(resume="回应"), config)
+        result = graph.invoke(Command(resume="确认"), config)
+
+        # single round, no next_round node runs, so caches remain as-is
+        assert result["status"] == "done"
+
+
+# =============================================================================
+# 多轮生命周期测试
+# =============================================================================
+
+
+class TestMultiRoundLifecycle:
+    """验证多轮论题演化的完整生命周期。"""
+
+    def test_two_round_debate(self):
+        """两轮辩论：第一轮 continue，第二轮 done。"""
+        checkpointer = MemorySaver()
+
+        # 第一轮裁判：继续
+        r1_referee = _make_mock_referee(
+            continue_debate=True,
+            new_thesis="AI 应在高风险领域受监管（第1轮拼合）",
+            reasoning="论题已有改进，但仍有细化空间。",
+        )
+
+        graph = build_graph(
+            _mock_opponent_compute,
+            _mock_opponent_interact,
+            _mock_presenter_compute,
+            _mock_presenter_interact,
+            r1_referee,
+            checkpointer=checkpointer,
+        )
+
+        config: dict = {"configurable": {"thread_id": str(uuid4())}}
+
+        # Round 1
+        graph.invoke(_make_initial_state("AI 应受监管。"), config)
+        graph.invoke(Command(resume="R1: 用户回应"), config)
+        result = graph.invoke(Command(resume="R1: 确认论题"), config)
+
+        # 第一轮结束，应继续
+        assert result["status"] == "awaiting_critique_response"  # 已进入 R2 的 opponent_interact
+        assert result["round"] == 2
+        assert result["current_thesis"] == "AI 应在高风险领域受监管（第1轮拼合）"
+        assert len(result["history"]) == 1
+        assert result["history"][0].round_number == 1
+
+        # 替换裁判为结束版并重建图（模拟 R2 裁判判定结束）
+        graph2 = build_graph(
+            _mock_opponent_compute,
+            _mock_opponent_interact,
+            _mock_presenter_compute,
+            _mock_presenter_interact,
+            _make_mock_referee(
+                continue_debate=False,
+                new_thesis="AI 应在高风险、高影响领域受严格监管（最终版）",
+                reasoning="论题已足够精确和完善。",
+                final_result="经过两轮演化，论题从宽泛走向精确。",
+            ),
+            checkpointer=checkpointer,
+        )
+
+        # Round 2: resume from R2's critique
+        graph2.invoke(Command(resume="R2: 用户回应"), config)
+        graph2.invoke(Command(resume="R2: 确认论题"), config)
+        result = graph2.invoke(None, config)
+
+        assert result["status"] == "done"
+        assert len(result["history"]) == 2
+        assert result["history"][0].round_number == 1
+        assert result["history"][1].round_number == 2
+        assert result["final_result"] == "经过两轮演化，论题从宽泛走向精确。"
+
+        # 验证 thesis 演化链
+        assert result["history"][0].thesis_before == "AI 应受监管。"
+        assert result["history"][0].thesis_after == "AI 应在高风险领域受监管（第1轮拼合）"
+        assert result["history"][1].thesis_before == "AI 应在高风险领域受监管（第1轮拼合）"
+        assert result["history"][1].thesis_after == "AI 应在高风险、高影响领域受严格监管（最终版）"
+
+    def test_thesis_evolution_across_rounds(self):
+        """验证 current_thesis 随轮次演化。"""
+        checkpointer = MemorySaver()
+
+        graph = build_graph(
+            _mock_opponent_compute,
+            _mock_opponent_interact,
+            _mock_presenter_compute,
+            _mock_presenter_interact,
+            _make_mock_referee(
+                continue_debate=True,
+                new_thesis="演化后的论题-V1",
+            ),
+            checkpointer=checkpointer,
+        )
+
+        config: dict = {"configurable": {"thread_id": str(uuid4())}}
+
+        r1 = graph.invoke(_make_initial_state("初始论题"), config)
+        assert r1["current_thesis"] == "初始论题"
+
+        graph.invoke(Command(resume="R1回应"), config)
+        r1c = graph.invoke(Command(resume="R1确认"), config)
+
+        # 进入 R2，current_thesis 已更新
+        assert r1c["current_thesis"] == "演化后的论题-V1"
+        assert r1c["round"] == 2
+
+
+# =============================================================================
+# 中断状态验证测试
+# =============================================================================
+
+
+class TestInterruptState:
+    """验证中断点前后的状态一致性。"""
+
+    def test_state_survives_interrupt(self):
+        """验证中断时 state 被正确保存，resume 后可恢复。"""
+        checkpointer = MemorySaver()
+        graph = build_graph(
+            _mock_opponent_compute,
+            _mock_opponent_interact,
+            _mock_presenter_compute,
+            _mock_presenter_interact,
+            _make_mock_referee(continue_debate=False),
+            checkpointer=checkpointer,
+        )
+
         thread_id = str(uuid4())
-        config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
+        config: dict = {"configurable": {"thread_id": thread_id}}
 
-        initial_state: AgentState = {
-            "topic": "测试主题",
-            "round": 1, "max_rounds": 1,
-            "status": "idle",
-            "messages": [], "presenter_argument": "", "opponent_rebuttal": "",
-            "referee_judgment": None, "history": [], "final_result": "",
-        }
+        # Invoke → interrupt at critique
+        graph.invoke(_make_initial_state("持久性测试论题"), config)
 
-        graph.invoke(initial_state, config)
+        # 通过 get_state 读取 checkpoint
         snapshot = graph.get_state(config)
-        assert snapshot.values["status"] == "presenting"
-        assert snapshot.values["topic"] == "测试主题"
+        saved = snapshot.values
+        assert saved["current_thesis"] == "持久性测试论题"
+        assert saved["round"] == 1
+        assert saved["status"] == "awaiting_critique_response"
+        assert len(saved["messages"]) == 1
 
-        graph.invoke(None, config)
-        snapshot = graph.get_state(config)
-        assert snapshot.values["status"] == "opposing"
-        assert "presenter" in snapshot.values["messages"][-1]["role"]
+    def test_messages_not_duplicated_on_resume(self):
+        """resume 后消息数量正确，无重复。"""
+        checkpointer = MemorySaver()
+        graph = build_graph(
+            _mock_opponent_compute,
+            _mock_opponent_interact,
+            _mock_presenter_compute,
+            _mock_presenter_interact,
+            _make_mock_referee(continue_debate=False),
+            checkpointer=checkpointer,
+        )
 
-        graph.invoke(None, config)
-        graph.invoke(None, config)  # → done
-        snapshot = graph.get_state(config)
-        assert snapshot.values["status"] == "done"
-        assert len(snapshot.values["history"]) == 1
+        config: dict = {"configurable": {"thread_id": str(uuid4())}}
 
-        print("  State consistency PASSED")
+        graph.invoke(_make_initial_state(), config)
+        # 1 msg (opponent) at interrupt
+
+        result = graph.invoke(Command(resume="回应"), config)
+        # 3 msgs (opponent + user + presenter) at 2nd interrupt
+        assert len(result["messages"]) == 3
+
+        result = graph.invoke(Command(resume="确认"), config)
+        # 5 msgs (opponent + user + presenter + user + referee) after done
+        assert len(result["messages"]) == 5
+
+        # 验证角色序列
+        roles = [m["role"] for m in result["messages"]]
+        assert roles == ["opponent", "user", "presenter", "user", "referee"]

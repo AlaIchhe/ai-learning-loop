@@ -1,98 +1,164 @@
 """
-裁判节点 —— 无状态纯函数。
+Referee 节点 —— 论题拼合者与终局判定者。
 
 职责：
-1. 读取 state 中本轮 presenter_argument 和 opponent_rebuttal。
+1. 读取本轮的所有输入（current_thesis / _draft_thesis / _confirmed_thesis）。
 2. 使用结构化输出调用 LLM，强制输出符合 RefereeJudgment schema 的 JSON。
-3. 将本轮归档为 RoundRecord 追加到 history。
+3. 将本轮论题演化归档为 RoundRecord 追加到 history。
 4. 判定是否继续下一轮或结束辩论。
+5. 结束时生成 final_result。
 
 契约：
 - 输入：完整的 AgentState（TypedDict）
 - 输出：dict，仅包含需要更新的字段
 - 不修改 state 本身，不产生副作用
-- referee_judgment 字段为 RefereeJudgment 实例（Pydantic 模型）
 """
+
+import json
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from core.model import get_chat_model
-from core.prompts import REFEREE_SYSTEM_PROMPT, referee_prompt
+from core.prompts import (
+    FINAL_SUMMARY_PROMPT,
+    REFEREE_SYSTEM_PROMPT,
+    final_summary_prompt,
+    referee_prompt,
+)
 from core.schemas import RefereeJudgment, RoundRecord
 from core.state import AgentState
 
 
-def referee_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
-    """裁判节点：对一轮辩论进行结构化评分。
+def referee_deliberate_node(
+    state: AgentState, model: ChatOpenAI | None = None
+) -> dict:
+    """裁判审议节点：拼合论题并判定是否继续。
 
     使用 with_structured_output 确保 LLM 输出严格符合 RefereeJudgment schema。
-    评分后将本轮归档为 RoundRecord，并判定是否进入下一轮或结束。
+    审议后将本轮归档为 RoundRecord，并判定继续或结束。
 
     Args:
-        state: 全局 AgentState，至少需包含 topic / round / max_rounds /
-               presenter_argument / opponent_rebuttal / messages / history。
-        model: 可注入的 LLM 实例。默认通过 get_chat_model() 从环境变量读取
-               配置（支持 OpenAI / DeepSeek / 其他兼容供应商）。测试时传入 Mock。
+        state: 全局 AgentState，至少需包含 current_thesis / _draft_thesis /
+               _confirmed_thesis / round / messages / history。
+        model: 可注入的 LLM 实例。默认通过 get_chat_model() 读取配置。
 
     Returns:
         dict，包含以下键：
-        - referee_judgment: RefereeJudgment  结构化评分结果
-        - messages: list[dict]               追加了裁判消息的完整消息列表
-        - history: list[RoundRecord]         追加了本轮归档的历史列表
-        - status: "presenting" | "done"      下一轮或结束
+        - current_thesis: str          裁判拼合后的新论题（仅 continue 时）
+        - messages: list[dict]         追加了 referee 消息的列表
+        - history: list[RoundRecord]   追加了本轮归档的列表
+        - status: "opponent_computing" | "done"
+        - final_result: str            终局总结报告（仅 done 时）
     """
     if model is None:
         model = get_chat_model(temperature=0.0)
 
-    # 结构化输出：绑定 RefereeJudgment schema
+    # --- Step 1: 结构化输出，获取 RefereeJudgment ---
     structured_model = model.with_structured_output(RefereeJudgment)
 
-    # 组装消息
+    # 构建历史摘要（用于终局判定上下文）
+    # 注：checkpointer 恢复时 Pydantic 模型会序列化为 dict，故需兼容两种访问方式
+    history_summary = ""
+    if state["history"]:
+        summaries = []
+        for r in state["history"]:
+            rn = r.round_number if hasattr(r, "round_number") else r.get("round_number", "?")  # type: ignore[union-attr]
+            tb = r.thesis_before if hasattr(r, "thesis_before") else r.get("thesis_before", "?")  # type: ignore[union-attr]
+            ta = r.thesis_after if hasattr(r, "thesis_after") else r.get("thesis_after", "?")  # type: ignore[union-attr]
+            cb = r.continue_debate if hasattr(r, "continue_debate") else r.get("continue_debate", "?")  # type: ignore[union-attr]
+            summaries.append(f"Round {rn}: {tb} -> {ta} (continue: {cb})")
+        history_summary = "\n".join(summaries)
+
     system_msg = SystemMessage(content=REFEREE_SYSTEM_PROMPT)
     user_msg = HumanMessage(
         content=referee_prompt(
-            topic=state["topic"],
+            current_thesis=state["current_thesis"],
+            draft_thesis=state["_draft_thesis"],
+            confirmed_thesis=state["_confirmed_thesis"],
             round_num=state["round"],
-            presenter_argument=state["presenter_argument"],
-            opponent_rebuttal=state["opponent_rebuttal"],
+            history_summary=history_summary,
         )
     )
 
-    # 调用 LLM（返回 RefereeJudgment 实例）
     raw = structured_model.invoke([system_msg, user_msg])
     judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
-    # 确保 round 字段与 state 一致（防御性修正）
     judgment.round = state["round"]
 
-    # 构造裁判消息
-    new_msg = {
+    # --- Step 2: 构造裁判消息 ---
+    decision = "继续" if judgment.continue_debate else "结束"
+    new_msg: dict[str, object] = {
         "role": "referee",
         "content": (
-            f"【第 {judgment.round} 轮裁决】\n"
-            f"陈述者得分: {judgment.presenter_total}/10 | "
-            f"反驳者得分: {judgment.opponent_total}/10\n"
-            f"胜者: {judgment.winner}\n"
+            f"【第 {judgment.round} 轮裁定】\n"
+            f"判定: {decision}辩论\n"
+            f"新论题: {judgment.new_thesis}\n"
             f"理由: {judgment.reasoning}\n"
-            f"改进建议: {judgment.improvement_hint}"
+            f"建议: {judgment.improvement_hint}"
         ),
         "round": state["round"],
     }
 
-    # 本轮归档
+    # --- Step 3: 本轮归档 ---
     round_record = RoundRecord(
         round_number=state["round"],
-        presenter_argument=state["presenter_argument"],
-        opponent_rebuttal=state["opponent_rebuttal"],
-        judgment=judgment,
+        thesis_before=state["current_thesis"],
+        critique=state["_critique"],
+        user_response=state["_user_response"],
+        draft_thesis=state["_draft_thesis"],
+        confirmed_thesis=state["_confirmed_thesis"],
+        thesis_after=judgment.new_thesis,
+        continue_debate=judgment.continue_debate,
+        referee_reasoning=judgment.reasoning,
     )
 
-    # 判定下一状态
-    next_status = "done" if state["round"] >= state["max_rounds"] else "presenting"
-
-    return {
-        "referee_judgment": judgment,
+    result: dict = {
         "messages": state["messages"] + [new_msg],
         "history": state["history"] + [round_record],
-        "status": next_status,
     }
+
+    # --- Step 4: 判定路由 ---
+    if judgment.continue_debate:
+        result["current_thesis"] = judgment.new_thesis
+        result["status"] = "opponent_computing"
+    else:
+        result["status"] = "done"
+
+        # 生成最终总结
+        history_json = json.dumps(
+            [r.model_dump() for r in result["history"]],
+            ensure_ascii=False,
+            default=str,
+        )
+        summary_system = SystemMessage(content=FINAL_SUMMARY_PROMPT)
+        summary_user = HumanMessage(
+            content=final_summary_prompt(
+                initial_thesis=_get_initial_thesis(state),
+                final_thesis=judgment.new_thesis,
+                history_json=history_json,
+            )
+        )
+        summary_response = model.invoke([summary_system, summary_user])
+        summary_content = summary_response.content
+        final_result = (
+            summary_content if isinstance(summary_content, str)
+            else str(summary_content)
+        ).strip()
+        result["final_result"] = final_result
+
+    return result
+
+
+def _get_initial_thesis(state: AgentState) -> str:
+    """从历史记录中推断初始论题。
+
+    第一轮的 thesis_before 即为用户最初输入的论题。
+    注：checkpointer 恢复时 Pydantic 模型会序列化为 dict。
+    """
+    if state["history"]:
+        first = state["history"][0]
+        return str(
+            first.thesis_before if hasattr(first, "thesis_before")
+            else first.get("thesis_before", state["current_thesis"])  # type: ignore[union-attr]
+        )
+    return state["current_thesis"]

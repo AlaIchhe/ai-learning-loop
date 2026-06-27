@@ -5,11 +5,15 @@ LangGraph 要求状态可序列化，因此字段类型限定为：
 - 基础类型 (str, int, bool, float)
 - 标准容器 (list, dict)
 - Pydantic BaseModel（运行时会转为 dict）
+
+状态分为两类：
+1. 持久字段：跨轮次保留，跟踪论题演化全程
+2. 轮次缓存字段（_ 前缀）：仅当前轮次有效，由 next_round 节点清空
 """
 
 from typing import Literal, TypedDict
 
-from core.schemas import RefereeJudgment, RoundRecord
+from core.schemas import RoundRecord
 
 
 class AgentStateOverrides(TypedDict, total=False):
@@ -19,66 +23,68 @@ class AgentStateOverrides(TypedDict, total=False):
     配合 typing.Unpack 用于函数的 **kwargs 签名。
     """
 
-    topic: str
+    current_thesis: str
     round: int
-    max_rounds: int
-    status: Literal["idle", "presenting", "opposing", "judging", "done"]
+    status: Literal[
+        "idle",
+        "opponent_computing",
+        "awaiting_critique_response",
+        "presenter_computing",
+        "awaiting_thesis_confirmation",
+        "referee_deliberating",
+        "done",
+    ]
     messages: list[dict[str, object]]
-    presenter_argument: str
-    opponent_rebuttal: str
-    referee_judgment: RefereeJudgment | None
     history: list[RoundRecord]
     final_result: str
+    _critique: str
+    _user_response: str
+    _draft_thesis: str
+    _confirmed_thesis: str
 
 
 class AgentState(TypedDict):
-    """多智能体辩论学习系统的全局状态。
+    """多智能体论题演化系统的全局状态。
+
+    核心概念：current_thesis 是唯一需要持续维护的状态。
+    每一轮辩论的目标是批判、精确化和拼合论题，使其逐步演化。
 
     所有 LangGraph 节点读取此 state 的字段，
     并通过返回 dict 来执行部分更新（仅更新变更字段）。
-
-    注意：messages 使用普通 list（非 add_messages reducer），
-    因为我们使用了自定义角色（presenter/opponent/referee），
-    这些角色不被 LangChain 标准消息类型所接受。
-    各节点通过返回新的 messages 列表来实现追加。
     """
 
-    # === 会话标识 ===
-    topic: str
-    """本轮辩论的主题/问题，由用户在 UI 层输入，进入 workflow 后不可变。"""
+    # === 核心论题（唯一跨轮次演化的内容） ===
+    current_thesis: str
+    """当前轮次的论题。由用户在首轮输入，后续由 Referee 拼合更新。"""
 
     # === 轮次控制 ===
     round: int
     """当前轮次编号（从 1 开始）。"""
 
-    max_rounds: int
-    """最大辩论轮次，默认为 3。裁判裁决后若 round >= max_rounds 则结束。"""
-
-    status: Literal["idle", "presenting", "opposing", "judging", "done"]
+    status: Literal[
+        "idle",
+        "opponent_computing",
+        "awaiting_critique_response",
+        "presenter_computing",
+        "awaiting_thesis_confirmation",
+        "referee_deliberating",
+        "done",
+    ]
     """当前工作流阶段。
-    - idle:      初始状态，等待开始
-    - presenting: 陈述者正在生成论点
-    - opposing:   反驳者正在生成反驳
-    - judging:    裁判正在评分
-    - done:       辩论结束
+    - idle:                           初始状态，等待开始
+    - opponent_computing:             Opponent 正在 LLM 生成批判
+    - awaiting_critique_response:     interrupt() 激活，等待用户回应批判
+    - presenter_computing:            Presenter 正在 LLM 精确化表述
+    - awaiting_thesis_confirmation:   interrupt() 激活，等待用户确认论题
+    - referee_deliberating:           Referee 正在拼合论题并判定
+    - done:                           论题已足够完善，辩论结束
     """
 
     # === 对话历史 ===
     messages: list[dict[str, object]]
     """全局消息列表。每条消息为 dict，包含 role / content / round 等字段。
     节点通过返回 {'messages': state['messages'] + [new_msg]} 来追加。
-    使用普通 list 的原因：LangChain add_messages 仅接受
-    human/ai/system/tool 等标准角色，而我们自定义了 presenter/opponent/referee。"""
-
-    # === 当前轮次缓存 ===
-    presenter_argument: str
-    """陈述者本轮生成的论点文本。"""
-
-    opponent_rebuttal: str
-    """反驳者本轮生成的反驳文本。"""
-
-    referee_judgment: RefereeJudgment | None
-    """裁判本轮的结构化评分结果（Pydantic 模型，运行时序列化为 dict）。"""
+    角色包括：opponent / user / presenter / referee。"""
 
     # === 历史轮次归档 ===
     history: list[RoundRecord]
@@ -87,7 +93,25 @@ class AgentState(TypedDict):
 
     # === 最终汇总 ===
     final_result: str
-    """辩论结束后的总结报告（纯文本，由裁判在最后一轮后生成）。"""
+    """辩论结束后的总结报告（纯文本）。"""
+
+    # === 轮次缓存（_ 前缀：每轮清空，不跨轮持久） ===
+
+    _critique: str
+    """[轮次缓存] Opponent 生成的批判文本。
+    由 opponent_compute 写入，opponent_interact 读取后通过 interrupt() 展示。"""
+
+    _user_response: str
+    """[轮次缓存] 用户对批判的回应。
+    由 opponent_interact 在 resume 后写入，presenter_compute 读取。"""
+
+    _draft_thesis: str
+    """[轮次缓存] Presenter 精确化后的论题草稿。
+    由 presenter_compute 写入，presenter_interact 读取后通过 interrupt() 展示。"""
+
+    _confirmed_thesis: str
+    """[轮次缓存] 用户确认（可能编辑）后的论题。
+    由 presenter_interact 在 resume 后写入，referee_deliberate 读取。"""
 
 
 #: LangGraph 节点函数的返回类型 —— 部分状态更新字典。

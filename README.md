@@ -1,19 +1,21 @@
-# 🎓 多智能体辩论学习系统
+# 🎓 多智能体论题演化系统
 
-基于 LangGraph 的三智能体对抗与精炼模型。**陈述者**构建论点、**反驳者**寻找漏洞、**裁判**结构化评分，多轮迭代打磨观点。Streamlit 提供分步可控的人机协作界面，LangSmith 提供全链路可观测性。
+基于 LangGraph 的三智能体论题迭代精炼系统。**批判者**审视论题漏洞、**精确化者**将用户回应转化为学术表述、**裁判**拼合新旧论题并判定演化方向。Streamlit 提供动态中断人机协作界面，LangSmith 提供全链路可观测性。
 
 ## 核心机制
 
 ```
-第 N 轮:  陈述者 → 反驳者 → 裁判 ──→ 继续/结束
-第 N+1 轮:  陈述者（考虑上轮反驳）→ 反驳者 → 裁判 ──→ ...
+每轮:
+  批判者 审视 current_thesis → 生成 critique → [动态中断: 用户回应]
+  精确化者 读用户回应 → 生成 draft_thesis → [动态中断: 用户确认]
+  裁判 拼合 draft + confirmed → 新 current_thesis → 继续/结束
 ```
 
-- **陈述者**：围绕主题构建有说服力的论点，后续轮次会针对反驳做出回应
-- **反驳者**：审视陈述者论点，指出逻辑漏洞、证据缺陷和推理谬误
-- **裁判**：四维评分（清晰度/逻辑性/论据/说服力），输出结构化 JSON，判定胜负
+- **批判者（Opponent）**：审视当前论题，指出逻辑漏洞、歧义、未经证实的假设
+- **精确化者（Presenter）**：将用户非正式回应转化为精确的学术论题语言
+- **裁判（Referee）**：对比新旧论题，拼合演化版本，判定是否足够完善
 
-每轮辩论结束后，裁判决定是进入下一轮还是终止辩论。
+`current_thesis` 是唯一跨轮次持久化的状态。每轮经批判、回应、精确化、确认、拼合后持续演化，直到裁判判定结束。
 
 ## 代码质量
 
@@ -91,14 +93,29 @@ python run.py
 streamlit run ui/app.py
 ```
 
-在侧边栏输入辩论主题，点击「开始辩论」，然后逐步点击「继续」观察三位智能体的对抗过程。
+在侧边栏输入初始论题，点击「开始辩论」。系统会依次展示批判者的质疑（你需要回应）和精确化者的草稿（你需要确认），点击「提交回应」/「确认论题」推进演化。
+
+### API Key 配置方式
+
+**推荐：通过 `.env` 文件配置**（支持多供应商、LangSmith 追踪，配置持久化）：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入你的 API Key
+```
+
+启动后侧边栏会自动检测 `.env` 配置并展示供应商信息。如需临时切换 Key，展开「手动覆盖 API Key」折叠面板即可。
+
+**备选：通过侧边栏直接输入**（适合临时演示、未配置 `.env` 时）：
+
+未检测到 `.env` 时，侧边栏会自动显示 API Key 输入框和高级模型设置。这些设置仅当前会话有效，刷新后需重新输入。注意：LangSmith 追踪必须通过 `.env` 配置（需在 LangChain 导入前设置环境变量）。
 
 > **提示**：`python run.py` 从任意目录执行都能自动定位项目根目录并加载 `.env`。未找到 `.env` 时会给出提示，未配置 API Key 时会输出诊断警告。
 
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 57 个用例，Mock LLM，无需真实 API
+python -m pytest tests/ -v    # 69 个用例，Mock LLM，无需真实 API
 ```
 
 ## 支持的大模型供应商
@@ -115,9 +132,9 @@ python -m pytest tests/ -v    # 57 个用例，Mock LLM，无需真实 API
 
 ## 可观测性
 
-开启 LangSmith 后，每次辩论会自动记录：
+开启 LangSmith 后，每次论题演化会自动记录：
 
-- 每个 Node（presenter / opponent / referee）的**输入输出和耗时**
+- 每个 Node（opponent / presenter / referee）的**输入输出和耗时**
 - LLM 调用的**完整 Prompt 和原始 Response**
 - **Token 用量**统计
 - Graph 节点间的**调用拓扑**
@@ -129,23 +146,23 @@ python -m pytest tests/ -v    # 57 个用例，Mock LLM，无需真实 API
 ```
 ai-learning-loop/
 ├── core/                    # 核心契约（所有模块的依赖根）
-│   ├── state.py             # AgentState + AgentStateOverrides + NodeOutput
-│   ├── schemas.py           # Pydantic 结构化模型（RefereeJudgment 等）
-│   ├── prompts.py           # System Prompt 与模板函数
+│   ├── state.py             # AgentState（6 持久字段 + 4 轮次缓存 + NodeOutput）
+│   ├── schemas.py           # Pydantic 结构化模型（RefereeJudgment / RoundRecord / Message）
+│   ├── prompts.py           # System Prompt 与模板函数（批判/精确化/拼合/总结）
 │   └── model.py             # LLM 模型工厂（多供应商切换，缺失 API Key 自动警告）
-├── agents/                  # 智能体节点（无状态纯函数）
-│   ├── presenter.py         # 陈述者：主题 → 论点
-│   ├── opponent.py          # 反驳者：论点 → 反驳
-│   └── referee.py           # 裁判：双方陈词 → 结构化评分
+├── agents/                  # 智能体节点（无状态纯函数，compute + interact 拆分）
+│   ├── opponent.py          # 批判者：current_thesis → critique（compute）/ interrupt 展示（interact）
+│   ├── presenter.py         # 精确化者：用户回应 → draft_thesis（compute）/ interrupt 确认（interact）
+│   └── referee.py           # 裁判：拼合论题 + 判定继续/结束 + 终局总结
 ├── workflow/                # 编排层
-│   └── graph.py             # LangGraph 图组装、条件路由、断点配置、export_graph()
+│   └── graph.py             # LangGraph 图组装（8 节点）、条件路由、export_graph()
 ├── ui/                      # 展现层
-│   └── app.py               # Streamlit 界面（纯渲染，路径自适应 .env 加载）
-├── tests/                   # 测试（Mock LLM，57 个用例）
-│   ├── test_agents.py       # 22 个用例：节点输入输出契约
-│   ├── test_workflow.py     # 12 个用例：调度节点、路由、图编译
-│   ├── test_integration.py  # 3 个用例：多轮端到端生命周期
-│   └── test_interfaces.py   # 20 个用例：跨层接口、序列化、checkpoint
+│   └── app.py               # Streamlit 界面（动态中断 UI、路径自适应 .env 加载）
+├── tests/                   # 测试（Mock LLM，69 个用例）
+│   ├── test_agents.py       # 29 个用例：6 个 agent 节点契约 + 中断幂等性
+│   ├── test_workflow.py     # 14 个用例：调度节点、路由、图编译、无 interrupt_before
+│   ├── test_integration.py  # 5 个用例：中断/恢复多轮生命周期、论题演化链
+│   └── test_interfaces.py   # 21 个用例：跨层接口、序列化、checkpoint、路由
 ├── pyproject.toml           # 项目元数据、依赖、ruff/mypy/pyright/pytest 配置
 ├── run.py                   # 通用启动器（从任意目录 python run.py）
 ├── .env.example             # 环境变量模板
@@ -159,21 +176,22 @@ ai-learning-loop/
 | 层级 | 职责 | 禁止 |
 |------|------|------|
 | `core/` | 数据契约（State、Schema、Prompt、Model） | 不得包含业务逻辑 |
-| `agents/` | 调用 LLM 生成内容，返回部分状态更新 | 不得修改 State、不得自行扩展字段 |
-| `workflow/` | 状态流转、条件路由、断点调度 | 不得包含 LLM 调用 |
-| `ui/` | 渲染数据、收集输入 | 不得修改 graph state、不得包含业务逻辑 |
+| `agents/` | 调用 LLM 生成内容（compute），通过 interrupt() 交互（interact） | 不得修改 State、不得自行扩展字段 |
+| `workflow/` | 状态流转、条件路由、节点编排 | 不得包含 LLM 调用、不得配置 interrupt_before |
+| `ui/` | 渲染数据、收集输入、检测中断并展示对应 UI | 不得修改 graph state、不得包含业务逻辑 |
 
 - **模型工厂**：`get_chat_model()` 读取环境变量创建 LLM 实例，支持任意 OpenAI 兼容供应商
 - **LLM 依赖注入**：Agent 节点的 `model` 参数可替换，方便测试和切换供应商
-- **断点（interrupt_before）**：默认在每个 Agent 前暂停，用户可在 UI 中逐步推进
-- **状态分离**：`st.session_state` 仅存 UI 元数据，辩论状态存储在 LangGraph checkpointer 中
-- **自定义角色**：消息使用 `presenter`/`opponent`/`referee` 角色，而非 LangChain 标准类型
+- **动态中断（`interrupt()`）**：人工介入通过节点内部的 `interrupt()` 调用实现，搭配 `Command(resume=...)` 恢复，不使用静态 `interrupt_before`
+- **Compute/Interact 拆分**：每个需要人工介入的 Agent 拆为 compute（LLM 调用，无中断）和 interact（无 LLM，含 `interrupt()`）两个节点，避免 resume 时 LLM 重复执行
+- **状态分离**：`st.session_state` 仅存 UI 元数据，论题演化状态完全存储在 LangGraph checkpointer 中
+- **`current_thesis` 唯一持久化**：仅 `current_thesis` 跨轮次演化；批判、草稿、确认均为 `_` 前缀轮次缓存，每轮清空
 
 ## 依赖
 
 | 包 | 用途 |
 |----|------|
-| `langgraph` | 状态图编排、断点、checkpointer |
+| `langgraph` | 状态图编排、动态中断、checkpointer |
 | `langchain-core` | 消息类型（SystemMessage / HumanMessage） |
 | `langchain-openai` | 模型调用（兼容 OpenAI / DeepSeek / 所有兼容 API） |
 | `pydantic` | 结构化数据模型与校验 |
@@ -187,7 +205,7 @@ ai-learning-loop/
 | `ruff` | 代码风格与 Lint（零告警） |
 | `pyright` | Strict 模式类型检查（零错误） |
 | `mypy` | 补充类型检查（零错误） |
-| `pytest` | 单元测试（57 个用例） |
+| `pytest` | 单元测试（69 个用例） |
 
 ## License
 

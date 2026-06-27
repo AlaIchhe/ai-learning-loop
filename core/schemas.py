@@ -20,8 +20,8 @@ from pydantic import BaseModel, Field
 class Message(BaseModel):
     """单条会话消息。"""
 
-    role: Literal["system", "presenter", "opponent", "referee"]
-    """消息发送方角色。"""
+    role: Literal["system", "presenter", "opponent", "referee", "user"]
+    """消息发送方角色。user 用于标记用户在中继点输入的内容。"""
 
     content: str = Field(min_length=1)
     """消息正文，不可为空。"""
@@ -38,45 +38,30 @@ class Message(BaseModel):
 # =============================================================================
 
 
-class CategoryScores(BaseModel):
-    """各维度的独立评分。"""
-
-    clarity: float = Field(ge=0.0, le=10.0, description="论点清晰度 (0-10)")
-    logic: float = Field(ge=0.0, le=10.0, description="逻辑严谨性 (0-10)")
-    evidence: float = Field(ge=0.0, le=10.0, description="论据充分性 (0-10)")
-    persuasiveness: float = Field(ge=0.0, le=10.0, description="说服力 (0-10)")
-
-
 class RefereeJudgment(BaseModel):
-    """裁判对一轮辩论的结构化评判。
+    """裁判对一轮论题演化的结构化判定。
 
     这是系统的核心契约 —— agents/referee.py 的 LLM 调用
     必须返回符合此 schema 的 JSON 输出。
     """
 
-    round: int = Field(ge=1, description="评判对应的轮次编号")
+    round: int = Field(ge=1, description="判定对应的轮次编号")
 
-    presenter_score: CategoryScores
-    """陈述者的各维度得分。"""
+    continue_debate: bool = Field(
+        description="是否继续下一轮辩论。True = 论题仍需打磨，False = 论题已足够完善。"
+    )
 
-    opponent_score: CategoryScores
-    """反驳者的各维度得分。"""
+    new_thesis: str = Field(
+        min_length=1,
+        description="裁判将当前论题、草稿和确认版拼合后的新 current_thesis。",
+    )
 
-    presenter_total: float = Field(ge=0.0, le=10.0, description="陈述者综合得分")
-    opponent_total: float = Field(ge=0.0, le=10.0, description="反驳者综合得分")
+    reasoning: str = Field(min_length=1, description="判定理由，说明为何继续或结束。")
 
-    winner: Literal["presenter", "opponent", "draw"]
-    """本轮胜者。"""
-
-    reasoning: str = Field(min_length=1, description="裁判的评分理由，至少 20 字")
-
-    presenter_strength: str = Field(default="", description="陈述者本轮亮点")
-    presenter_weakness: str = Field(default="", description="陈述者本轮不足")
-
-    opponent_strength: str = Field(default="", description="反驳者本轮亮点")
-    opponent_weakness: str = Field(default="", description="反驳者本轮不足")
-
-    improvement_hint: str = Field(default="", description="给双方的改进建议")
+    improvement_hint: str = Field(
+        default="",
+        description="下一轮的改进方向，或对最终论题的肯定评价。",
+    )
 
 
 # =============================================================================
@@ -85,14 +70,19 @@ class RefereeJudgment(BaseModel):
 
 
 class RoundRecord(BaseModel):
-    """单轮辩论的完整归档（存入 history 列表）。"""
+    """单轮论题演化的完整归档（存入 history 列表）。"""
 
     round_number: int = Field(ge=1)
 
-    presenter_argument: str = Field(min_length=1)
-    opponent_rebuttal: str = Field(min_length=1)
-    judgment: RefereeJudgment
-    """本轮裁判的完整结构化评分。"""
+    thesis_before: str = Field(min_length=1, description="本轮开始时的 current_thesis")
+    critique: str = Field(min_length=1, description="Opponent 的批判文本")
+    user_response: str = Field(min_length=1, description="用户对批判的回应")
+    draft_thesis: str = Field(min_length=1, description="Presenter 精确化后的草稿")
+    confirmed_thesis: str = Field(min_length=1, description="用户确认后的论题")
+    thesis_after: str = Field(min_length=1, description="Referee 拼合后的新 current_thesis")
+
+    continue_debate: bool = Field(description="裁判是否决定继续下一轮")
+    referee_reasoning: str = Field(min_length=1, description="裁判的判定理由")
 
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
@@ -100,13 +90,9 @@ class RoundRecord(BaseModel):
 class DebateResult(BaseModel):
     """整场辩论的最终汇总。"""
 
-    topic: str
-    total_rounds: int
+    initial_thesis: str = Field(min_length=1, description="用户最初提出的论题")
+    final_thesis: str = Field(min_length=1, description="辩论结束时的最终论题")
+    total_rounds: int = Field(ge=0, description="总轮次数")
 
-    winner: Literal["presenter", "opponent", "draw"]
-    presenter_wins: int = Field(ge=0, description="陈述者获胜轮次数")
-    opponent_wins: int = Field(ge=0, description="反驳者获胜轮次数")
-    draws: int = Field(ge=0, description="平局轮次数")
-
-    rounds: list[RoundRecord]
+    rounds: list[RoundRecord] = Field(default_factory=list)
     summary: str = Field(min_length=1, description="最终总结报告")

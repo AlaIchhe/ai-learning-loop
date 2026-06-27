@@ -3,407 +3,449 @@
 
 覆盖：
 - State 字段在节点间传递不丢失、不畸变
-- Prompt 模板由 State 字段正确拼接
-- 节点输出的 dict 可安全合并回 State
-- RefereeJudgment 在 Pydantic ↔ dict 间往返序列化无损
-- 消息格式在三类 Agent 间保持一致结构
-- LangGraph checkpoint 存储/恢复的 fidelity
+- Pydantic 模型序列化往返
+- Checkpoint 持久化 fidelity
+- 条件路由正确性
+- Prompt 模板注入
 """
 
-from typing import Unpack, cast
+from typing import cast
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END
 
+from agents.opponent import opponent_compute_node, opponent_interact_node
+from agents.presenter import presenter_compute_node, presenter_interact_node
+from agents.referee import referee_deliberate_node
 from core.prompts import (
+    FINAL_SUMMARY_PROMPT,
+    OPPONENT_SYSTEM_PROMPT,
+    PRESENTER_SYSTEM_PROMPT,
+    REFEREE_SYSTEM_PROMPT,
+    final_summary_prompt,
     opponent_prompt,
     presenter_prompt,
     referee_prompt,
 )
-from core.schemas import (
-    CategoryScores,
-    DebateResult,
-    Message,
-    RefereeJudgment,
-    RoundRecord,
-)
-from core.state import AgentState, AgentStateOverrides
-from workflow.graph import _next_round_node, _route_after_referee, _start_node, build_graph
+from core.schemas import DebateResult, Message, RefereeJudgment, RoundRecord
+from core.state import AgentState
+from workflow.graph import _route_after_referee, build_graph
 
 # =============================================================================
-# 1. Prompt 接口：State 字段 → 模板 → 正确字符串
+# 辅助函数
 # =============================================================================
 
 
-class TestPromptInterface:
-    """验证 State 字段正确注入 Prompt 模板。"""
-
-    def test_presenter_prompt_injects_topic(self):
-        result = presenter_prompt("AI 监管的必要性")
-        assert "AI 监管的必要性" in result
-        assert "请围绕此主题" in result  # 首轮提示
-
-    def test_presenter_prompt_injects_opponent_feedback(self):
-        result = presenter_prompt("AI 监管", "你的证据不充分")
-        assert "AI 监管" in result
-        assert "你的证据不充分" in result
-        assert "上一轮反驳者的质疑" in result
-
-    def test_presenter_prompt_handles_empty_opponent(self):
-        """空字符串时走首轮分支。"""
-        result = presenter_prompt("主题", "")
-        assert "上一轮反驳" not in result
-        assert "请围绕此主题" in result
-
-    def test_opponent_prompt_injects_both_fields(self):
-        result = opponent_prompt("AI 伦理", "AI 必须接受监管因为...")
-        assert "AI 伦理" in result
-        assert "AI 必须接受监管因为" in result
-
-    def test_referee_prompt_injects_all_fields(self):
-        result = referee_prompt("气候变化政策", 3, "论点正文...", "反驳正文...")
-        assert "气候变化政策" in result
-        assert "第 3 轮" in result
-        assert "论点正文..." in result
-        assert "反驳正文..." in result
-        assert "JSON" in result
-
-    def test_prompt_strings_are_plain_str(self):
-        """所有模板返回纯 str，不含 None 或 bytes。"""
-        p = presenter_prompt("X", "Y")
-        o = opponent_prompt("X", "Y")
-        r = referee_prompt("X", 1, "A", "B")
-        for name, val in [("presenter", p), ("opponent", o), ("referee", r)]:
-            assert isinstance(val, str), f"{name}: expected str, got {type(val)}"
-            assert "None" not in val, f"{name} contains 'None'"
-
-
-# =============================================================================
-# 2. 节点输出接口：dict → State 合并兼容性
-# =============================================================================
-
-
-# Mock agent nodes (stateless, same shape as real agents)
-def _test_presenter(state: AgentState) -> dict:
-    return {
-        "presenter_argument": f"论点-{state['topic']}",
-        "messages": state["messages"]
-        + [{"role": "presenter", "content": f"论点-{state['topic']}", "round": state["round"]}],
-        "status": "opposing",
+def _make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgumentType]
+    defaults: AgentState = {
+        "current_thesis": "测试论题",
+        "round": 1,
+        "status": "opponent_computing",
+        "messages": [],
+        "history": [],
+        "final_result": "",
+        "_critique": "",
+        "_user_response": "",
+        "_draft_thesis": "",
+        "_confirmed_thesis": "",
     }
+    return cast(AgentState, {**defaults, **overrides})
 
 
-def _test_opponent(state: AgentState) -> dict:
-    return {
-        "opponent_rebuttal": f"反驳-{state['presenter_argument'][:10]}",
-        "messages": state["messages"]
-        + [{"role": "opponent", "content": f"反驳-{state['presenter_argument'][:10]}", "round": state["round"]}],
-        "status": "judging",
-    }
+def _make_mock_model(response_text: str) -> MagicMock:
+    mock = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = response_text
+    mock.invoke.return_value = mock_response
+    return mock
 
 
-def _test_referee(state: AgentState) -> dict:
-    j = RefereeJudgment(
-        round=state["round"],
-        presenter_score=CategoryScores(clarity=7, logic=6, evidence=7, persuasiveness=6),
-        opponent_score=CategoryScores(clarity=6, logic=7, evidence=5, persuasiveness=6),
-        presenter_total=6.5,
-        opponent_total=6.0,
-        winner="presenter",
-        reasoning="理由",
-        presenter_strength="亮点",
-        presenter_weakness="不足",
-        opponent_strength="亮点",
-        opponent_weakness="不足",
-        improvement_hint="建议",
-    )
-    next_status = "done" if state["round"] >= state["max_rounds"] else "presenting"
-    return {
-        "referee_judgment": j,
-        "messages": state["messages"]
-        + [{"role": "referee", "content": f"裁决-R{state['round']}", "round": state["round"]}],
-        "history": state["history"]
-        + [
-            RoundRecord(
-                round_number=state["round"],
-                presenter_argument=state["presenter_argument"],
-                opponent_rebuttal=state["opponent_rebuttal"],
-                judgment=j,
-            )
-        ],
-        "status": next_status,
-    }
+# =============================================================================
+# Prompt 模板测试
+# =============================================================================
+
+
+class TestPromptStrings:
+    """验证所有 Prompt 字符串存在且为 str。"""
+
+    def test_opponent_prompt_is_plain_str(self):
+        assert isinstance(OPPONENT_SYSTEM_PROMPT, str)
+        result = opponent_prompt("测试论题")
+        assert isinstance(result, str)
+        assert "测试论题" in result
+
+    def test_presenter_prompt_is_plain_str(self):
+        assert isinstance(PRESENTER_SYSTEM_PROMPT, str)
+        result = presenter_prompt("原始论题", "批判内容", "用户回应")
+        assert isinstance(result, str)
+        assert "原始论题" in result
+        assert "批判内容" in result
+        assert "用户回应" in result
+
+    def test_referee_prompt_is_plain_str(self):
+        assert isinstance(REFEREE_SYSTEM_PROMPT, str)
+        result = referee_prompt("当前论题", "草稿", "确认版", 1)
+        assert isinstance(result, str)
+        assert "当前论题" in result
+        assert "草稿" in result
+        assert "确认版" in result
+        assert "Round 1" in result
+
+    def test_final_summary_prompt_is_plain_str(self):
+        assert isinstance(FINAL_SUMMARY_PROMPT, str)
+        result = final_summary_prompt("初始论题", "最终论题", "[]")
+        assert isinstance(result, str)
+        assert "初始论题" in result
+        assert "最终论题" in result
+
+
+# =============================================================================
+# Agent Node 输出接口测试
+# =============================================================================
 
 
 class TestNodeOutputInterface:
-    """验证节点输出 dict 可安全合并回 State。"""
+    """验证节点返回的 dict key 与 AgentState 兼容。"""
 
-    def _initial_state(self, **overrides: Unpack[AgentStateOverrides]) -> AgentState:
-        defaults: AgentState = {
-            "topic": "测试", "round": 1, "max_rounds": 2, "status": "presenting",
-            "messages": [], "presenter_argument": "", "opponent_rebuttal": "",
-            "referee_judgment": None, "history": [], "final_result": "",
-        }
-        return cast(AgentState, {**defaults, **overrides})
-
-    def test_presenter_output_keys_match_state(self):
-        result = _test_presenter(self._initial_state())
-        # 所有返回键必须存在于 AgentState 中
+    def test_opponent_compute_output_keys_match_state(self):
+        state = _make_state()
+        model = _make_mock_model("批判")
+        result = opponent_compute_node(state, model=model)
         for key in result:
-            assert key in AgentState.__annotations__, f"Key '{key}' not in AgentState"
-        assert result["status"] == "opposing"
-        assert len(result["presenter_argument"]) > 0
-        assert len(result["messages"]) == 1
+            assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
-    def test_opponent_output_keys_match_state(self):
-        s = self._initial_state(
-            presenter_argument="论点内容",
-            messages=[{"role": "presenter", "content": "论点内容", "round": 1}],
+    def test_opponent_interact_output_keys_match_state(self):
+        state = _make_state(
+            _critique="c", status="awaiting_critique_response",
         )
-        result = _test_opponent(s)
+        # Mock interrupt to avoid GraphInterrupt
+        with patch("agents.opponent.interrupt") as mock_int:
+            mock_int.return_value = "回应"
+            result = opponent_interact_node(state)
         for key in result:
-            assert key in AgentState.__annotations__, f"Key '{key}' not in AgentState"
-        assert result["status"] == "judging"
+            assert key in AgentState.__annotations__, f"Unknown key: {key}"
+
+    def test_presenter_compute_output_keys_match_state(self):
+        state = _make_state(_critique="c", _user_response="u")
+        model = _make_mock_model("草稿")
+        result = presenter_compute_node(state, model=model)
+        for key in result:
+            assert key in AgentState.__annotations__, f"Unknown key: {key}"
+
+    def test_presenter_interact_output_keys_match_state(self):
+        state = _make_state(
+            _draft_thesis="d", status="awaiting_thesis_confirmation",
+        )
+        with patch("agents.presenter.interrupt") as mock_int:
+            mock_int.return_value = "确认"
+            result = presenter_interact_node(state)
+        for key in result:
+            assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
     def test_referee_output_keys_match_state(self):
-        s = self._initial_state(status="judging", presenter_argument="论点", opponent_rebuttal="反驳",
-                                messages=[{"role": "opponent", "content": "反驳", "round": 1}])
-        result = _test_referee(s)
+        state = _make_state(
+            _critique="c", _user_response="u",
+            _draft_thesis="d", _confirmed_thesis="cf",
+        )
+        # Mock the full referee flow
+        mock_model = MagicMock()
+        structured_mock = MagicMock()
+        structured_mock.invoke.return_value = RefereeJudgment(
+            round=1, continue_debate=True,
+            new_thesis="新论题", reasoning="理由",
+        )
+        mock_model.with_structured_output.return_value = structured_mock
+        mock_model.invoke.return_value = MagicMock(content="总结")
+
+        result = referee_deliberate_node(state, model=mock_model)
         for key in result:
-            assert key in AgentState.__annotations__, f"Key '{key}' not in AgentState"
-        assert isinstance(result["referee_judgment"], RefereeJudgment)
-        assert isinstance(result["history"][0], RoundRecord)
+            assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
     def test_state_merge_is_additive(self):
-        """节点返回的 dict 只覆盖对应 key，不删除其他 key。"""
-        base = self._initial_state()
-        result = _test_presenter(base)
-        # 模拟 LangGraph 合并
-        merged = {**base, **result}
-        # 合并后所有原始 key 仍然存在
-        for key in AgentState.__annotations__:
-            assert key in merged, f"Key '{key}' lost after merge"
+        """多个节点的部分更新合并后 state 完整。"""
+        # 模拟一轮完整流程的返回值合并
+        state = _make_state(messages=[], history=[])
+        model = _make_mock_model("批判")
+        r1 = opponent_compute_node(state, model=model)  # 不修改 state
+        assert state["messages"] == []  # 原始未变
+
+        # 手动合并
+        merged = {**state, **r1}
+        assert merged["_critique"] == "批判"
+        assert merged["status"] == "awaiting_critique_response"
+        assert len(merged["messages"]) == 1
 
     def test_all_nodes_produce_same_message_structure(self):
-        """三类 Agent 产生的消息具有相同结构。"""
-        expected_keys = {"role", "content", "round"}
-        s = self._initial_state()
+        """所有节点产生的消息都包含 role/content/round。"""
+        state = _make_state()
+        model = _make_mock_model("测试内容")
 
-        r1 = _test_presenter(s)
-        msg = r1["messages"][-1]
-        assert expected_keys.issubset(msg.keys()), f"presenter msg missing keys: {expected_keys - set(msg.keys())}"
+        nodes = [
+            opponent_compute_node(state, model=model),
+        ]
 
-        s2 = cast(AgentState, {**s, **r1})
-        r2 = _test_opponent(s2)
-        msg = r2["messages"][-1]
-        assert expected_keys.issubset(msg.keys()), "opponent msg missing keys"
-
-        s3 = cast(AgentState, {**s2, **r2})
-        r3 = _test_referee(s3)
-        msg = r3["messages"][-1]
-        assert expected_keys.issubset(msg.keys()), "referee msg missing keys"
-
-    def test_scheduler_nodes_dont_leak_keys(self):
-        """调度节点只返回声明的 key，不污染 State。"""
-        r1 = _start_node(cast(AgentState, {"status": "idle"}))
-        assert set(r1.keys()) == {"status"}
-
-        r2 = _next_round_node(
-            cast(
-                AgentState,
-                {"round": 1, "presenter_argument": "x", "opponent_rebuttal": "y", "referee_judgment": None},
-            )
-        )
-        assert set(r2.keys()) == {"round", "presenter_argument", "opponent_rebuttal", "referee_judgment"}
+        for node_result in nodes:
+            msgs = node_result.get("messages", [])
+            for msg in msgs:
+                assert "role" in msg
+                assert "content" in msg
+                assert "round" in msg
 
 
 # =============================================================================
-# 3. 序列化接口：Pydantic ↔ dict 往返无损
+# Pydantic 序列化往返测试
 # =============================================================================
 
 
 class TestSerializationFidelity:
-    """数据跨越 Pydantic ↔ dict 边界后不丢失、不畸变。"""
+    """Pydantic 模型 dict 序列化往返保真度。"""
 
     def test_referee_judgment_roundtrip(self):
         original = RefereeJudgment(
             round=3,
-            presenter_score=CategoryScores(clarity=7.5, logic=6.2, evidence=8.1, persuasiveness=7.0),
-            opponent_score=CategoryScores(clarity=6.3, logic=7.8, evidence=5.4, persuasiveness=6.9),
-            presenter_total=7.2,
-            opponent_total=6.6,
-            winner="presenter",
-            reasoning="陈述者论据更充分，逻辑上有改进空间。",
-            presenter_strength="数据翔实",
-            presenter_weakness="推理跳跃",
-            opponent_strength="逻辑严密",
-            opponent_weakness="论据陈旧",
-            improvement_hint="引用最新研究。",
+            continue_debate=False,
+            new_thesis="最终论题：AI 应在高风险领域受监管。",
+            reasoning="论题已清晰明确，边界条件完整。",
+            improvement_hint="建议在实际政策制定中参考此论题。",
         )
-        d = original.model_dump()
-        restored = RefereeJudgment(**d)
-        assert restored.round == original.round == 3
-        assert restored.presenter_score.clarity == 7.5
-        assert restored.presenter_total == 7.2
-        assert restored.winner == "presenter"
-        assert restored.reasoning == "陈述者论据更充分，逻辑上有改进空间。"
-        assert restored.improvement_hint == "引用最新研究。"
+        restored = RefereeJudgment(**original.model_dump())
+        assert restored.round == original.round
+        assert restored.continue_debate == original.continue_debate
+        assert restored.new_thesis == original.new_thesis
+        assert restored.reasoning == original.reasoning
+        assert restored.improvement_hint == original.improvement_hint
 
     def test_round_record_roundtrip(self):
-        j = RefereeJudgment(
-            round=2,
-            presenter_score=CategoryScores(clarity=5, logic=5, evidence=5, persuasiveness=5),
-            opponent_score=CategoryScores(clarity=5, logic=5, evidence=5, persuasiveness=5),
-            presenter_total=5, opponent_total=5, winner="draw",
-            reasoning="平局。", presenter_strength="", presenter_weakness="",
-            opponent_strength="", opponent_weakness="", improvement_hint="",
+        original = RoundRecord(
+            round_number=1,
+            thesis_before="原始论题", critique="批判",
+            user_response="回应", draft_thesis="草稿",
+            confirmed_thesis="确认版", thesis_after="演化论题",
+            continue_debate=True, referee_reasoning="理由",
         )
-        r = RoundRecord(round_number=2, presenter_argument="P", opponent_rebuttal="O", judgment=j)
-        d = r.model_dump()
-        restored = RoundRecord(**d)
-        assert restored.round_number == 2
-        assert restored.presenter_argument == "P"
-        assert restored.opponent_rebuttal == "O"
-        assert restored.judgment.winner == "draw"
+        restored = RoundRecord(**original.model_dump())
+        assert restored.round_number == original.round_number
+        assert restored.thesis_before == original.thesis_before
+        assert restored.thesis_after == original.thesis_after
 
     def test_message_roundtrip(self):
-        m = Message(role="presenter", content="论点...", round=2)
-        d = m.model_dump()
-        restored = Message(**d)
-        assert restored.role == "presenter"
-        assert restored.content == "论点..."
+        original = Message(role="user", content="我的回应", round=2)
+        restored = Message(**original.model_dump())
+        assert restored.role == "user"
+        assert restored.content == "我的回应"
         assert restored.round == 2
 
     def test_debate_result_construction(self):
-        j = RefereeJudgment(
-            round=1, presenter_score=CategoryScores(clarity=8, logic=8, evidence=8, persuasiveness=8),
-            opponent_score=CategoryScores(clarity=7, logic=7, evidence=7, persuasiveness=7),
-            presenter_total=8, opponent_total=7, winner="presenter",
-            reasoning="好", presenter_strength="", presenter_weakness="",
-            opponent_strength="", opponent_weakness="", improvement_hint="",
+        record = RoundRecord(
+            round_number=1, thesis_before="A", critique="B",
+            user_response="C", draft_thesis="D", confirmed_thesis="E",
+            thesis_after="F", continue_debate=False,
+            referee_reasoning="完成",
         )
-        r = RoundRecord(round_number=1, presenter_argument="A", opponent_rebuttal="B", judgment=j)
         result = DebateResult(
-            topic="X",
+            initial_thesis="A",
+            final_thesis="F",
             total_rounds=1,
-            winner="presenter",
-            presenter_wins=1,
-            opponent_wins=0,
-            draws=0,
-            rounds=[r],
-            summary="总结",
+            rounds=[record],
+            summary="演化完成。",
         )
-        assert result.presenter_wins + result.opponent_wins + result.draws == result.total_rounds
+        assert result.initial_thesis == "A"
+        assert result.final_thesis == "F"
+        assert result.total_rounds == 1
+        assert len(result.rounds) == 1
 
 
 # =============================================================================
-# 4. Checkpoint 接口：LangGraph 存储/恢复 fidelity
+# Checkpoint 持久化测试
 # =============================================================================
 
 
 class TestCheckpointInterface:
-    """验证状态经过 checkpointer 存取后数据不丢失。"""
+    """验证 state 在 checkpoint 中完整保存和恢复。"""
 
-    def test_full_state_survives_checkpoint_roundtrip(self):
-        """完整 10 字段状态写入 checkpoint 再读出，每个字段一致。"""
+    def test_state_survives_interrupt(self):
         checkpointer = MemorySaver()
-        graph = build_graph(
-            _test_presenter, _test_opponent, _test_referee,
-            checkpointer=checkpointer,
-        )
-        tid = str(uuid4())
-        config = cast(RunnableConfig, {"configurable": {"thread_id": tid}})
+        from langgraph.types import Command
 
-        initial: AgentState = {
-            "topic": "端到端接口测试",
-            "round": 1,
-            "max_rounds": 1,
-            "status": "idle",
-            "messages": [],
-            "presenter_argument": "",
-            "opponent_rebuttal": "",
-            "referee_judgment": None,
-            "history": [],
-            "final_result": "",
+        def _mock_oc(state): return {
+            "_critique": "批判", "messages": state["messages"] + [
+                {"role": "opponent", "content": "批判", "round": 1}
+            ], "status": "awaiting_critique_response",
         }
 
-        # 逐步推进至 done
-        graph.invoke(initial, config)   # → interrupt before presenter
-        graph.invoke(None, config)      # → presenter done
-        graph.invoke(None, config)      # → opponent done
-        graph.invoke(None, config)      # → referee → done
+        def _mock_oi(state):
+            from langgraph.types import interrupt
+            resp = interrupt(state["_critique"])
+            return {
+                "_user_response": str(resp), "messages": state["messages"] + [
+                    {"role": "user", "content": str(resp), "round": 1}
+                ], "status": "presenter_computing",
+            }
 
-        # 从 checkpoint 读回
+        def _mock_pc(state): return {
+            "_draft_thesis": "草稿", "messages": state["messages"] + [
+                {"role": "presenter", "content": "草稿", "round": 1}
+            ], "status": "awaiting_thesis_confirmation",
+        }
+
+        def _mock_pi(state):
+            from langgraph.types import interrupt
+            cf = interrupt(state["_draft_thesis"])
+            return {
+                "_confirmed_thesis": str(cf), "messages": state["messages"] + [
+                    {"role": "user", "content": str(cf), "round": 1}
+                ], "status": "referee_deliberating",
+            }
+
+        def _mock_rd(state):
+            record = RoundRecord(
+                round_number=1, thesis_before=state["current_thesis"],
+                critique=state["_critique"], user_response=state["_user_response"],
+                draft_thesis=state["_draft_thesis"],
+                confirmed_thesis=state["_confirmed_thesis"],
+                thesis_after="最终论题", continue_debate=False,
+                referee_reasoning="完成",
+            )
+            return {
+                "messages": state["messages"] + [
+                    {"role": "referee", "content": "结束", "round": 1}
+                ], "history": state["history"] + [record],
+                "status": "done", "final_result": "报告",
+            }
+
+        graph = build_graph(
+            _mock_oc, _mock_oi, _mock_pc, _mock_pi, _mock_rd,
+            checkpointer=checkpointer,
+        )
+
+        thread_id = str(uuid4())
+        config: dict = {"configurable": {"thread_id": thread_id}}
+        graph.invoke(_make_state(), config)
+
+        # 读取 checkpoint 快照
         snapshot = graph.get_state(config)
         saved = snapshot.values
-
-        # 每个字段类型和值校验
-        assert saved["topic"] == "端到端接口测试"
+        assert saved["current_thesis"] == "测试论题"
         assert saved["round"] == 1
-        assert saved["max_rounds"] == 1
-        assert saved["status"] == "done"
-        assert isinstance(saved["messages"], list)
-        assert len(saved["messages"]) == 3
-        assert saved["presenter_argument"].startswith("论点-")
-        assert saved["opponent_rebuttal"].startswith("反驳-")
-        assert isinstance(saved["referee_judgment"], RefereeJudgment)
-        assert isinstance(saved["history"], list)
-        assert len(saved["history"]) == 1
-        assert isinstance(saved["history"][0], RoundRecord)
-        assert saved["final_result"] == ""
+        assert saved["_critique"] == "批判"
+        assert len(saved["messages"]) == 1
 
-    def test_state_persistence_across_interrupts(self):
-        """跨多个 interrupt 点，topic 和 max_rounds 始终不变。"""
+        # Resume
+        graph.invoke(Command(resume="回应"), config)
+        graph.invoke(Command(resume="确认"), config)
+        final_snapshot = graph.get_state(config)
+        final = final_snapshot.values
+        assert final["status"] == "done"
+        assert len(final["history"]) == 1
+        assert final["final_result"] == "报告"
+
+    def test_current_thesis_persists_across_interrupts(self):
+        """跨多个中断点 current_thesis 保持正确。"""
         checkpointer = MemorySaver()
-        graph = build_graph(
-            _test_presenter, _test_opponent, _test_referee,
-            checkpointer=checkpointer,
-        )
-        tid = str(uuid4())
-        config = cast(RunnableConfig, {"configurable": {"thread_id": tid}})
+        from langgraph.types import Command
 
-        s: AgentState = {
-            "topic": "持久性测试", "round": 1, "max_rounds": 2, "status": "idle",
-            "messages": [], "presenter_argument": "", "opponent_rebuttal": "",
-            "referee_judgment": None, "history": [], "final_result": "",
+        def _oc(state): return {
+            "_critique": "批判", "messages": state["messages"] + [
+                {"role": "opponent", "content": "批判", "round": state["round"]}
+            ], "status": "awaiting_critique_response",
         }
+        def _oi(state):
+            from langgraph.types import interrupt
+            r = interrupt(state["_critique"])
+            return {
+                "_user_response": str(r), "messages": state["messages"] + [
+                    {"role": "user", "content": str(r), "round": state["round"]}
+                ], "status": "presenter_computing",
+            }
+        def _pc(state): return {
+            "_draft_thesis": "草稿", "messages": state["messages"] + [
+                {"role": "presenter", "content": "草稿", "round": state["round"]}
+            ], "status": "awaiting_thesis_confirmation",
+        }
+        def _pi(state):
+            from langgraph.types import interrupt
+            cf = interrupt(state["_draft_thesis"])
+            return {
+                "_confirmed_thesis": str(cf), "messages": state["messages"] + [
+                    {"role": "user", "content": str(cf), "round": state["round"]}
+                ], "status": "referee_deliberating",
+            }
+        def _rd(state):
+            record = RoundRecord(
+                round_number=state["round"],
+                thesis_before=state["current_thesis"],
+                critique=state["_critique"],
+                user_response=state["_user_response"],
+                draft_thesis=state["_draft_thesis"],
+                confirmed_thesis=state["_confirmed_thesis"],
+                thesis_after="演化后-V1",
+                continue_debate=True,
+                referee_reasoning="继续",
+            )
+            return {
+                "current_thesis": "演化后-V1",
+                "messages": state["messages"] + [
+                    {"role": "referee", "content": "继续", "round": state["round"]}
+                ], "history": state["history"] + [record],
+                "status": "opponent_computing",
+            }
 
-        # 在每个 interrupt 点读取 state
-        states = []
-        states.append(graph.invoke(s, config))          # before presenter
-        states.append(graph.invoke(None, config))       # before opponent
-        states.append(graph.invoke(None, config))       # before referee (R1)
-        states.append(graph.invoke(None, config))       # before presenter (R2)
-        states.append(graph.invoke(None, config))       # before opponent (R2)
-        states.append(graph.invoke(None, config))       # before referee (R2)
-        states.append(graph.invoke(None, config))       # done
+        graph = build_graph(
+            _oc, _oi, _pc, _pi, _rd, checkpointer=checkpointer,
+        )
 
-        for i, st in enumerate(states):
-            assert st["topic"] == "持久性测试", f"Step {i}: topic changed"
-            # max_rounds never changes
-            assert st["max_rounds"] == 2, f"Step {i}: max_rounds changed from 2"
+        config: dict = {"configurable": {"thread_id": str(uuid4())}}
+        state = _make_state(current_thesis="持久性测试论题")
+        graph.invoke(state, config)
+
+        snapshot = graph.get_state(config)
+        assert snapshot.values["current_thesis"] == "持久性测试论题"
+
+        graph.invoke(Command(resume="R1回应"), config)
+        graph.invoke(Command(resume="R1确认"), config)
+
+        final = graph.get_state(config)
+        assert final.values["current_thesis"] == "演化后-V1"
+        assert final.values["round"] == 2
 
 
 # =============================================================================
-# 5. 条件路由接口：status → 正确目标
+# 路由测试
 # =============================================================================
 
 
 class TestRoutingInterface:
-    """验证 status 字段驱动路由的完整性。"""
+    """条件路由正确性。"""
 
-    def test_all_status_values_map_correctly(self):
-        """status 的 5 种值只有 'done' 映射到 END。"""
-        assert _route_after_referee(cast(AgentState, {"status": "presenting"})) == "next_round"
-        assert _route_after_referee(cast(AgentState, {"status": "opposing"})) == "next_round"
-        assert _route_after_referee(cast(AgentState, {"status": "judging"})) == "next_round"
-        assert _route_after_referee(cast(AgentState, {"status": "idle"})) == "next_round"
-        assert _route_after_referee(cast(AgentState, {"status": "done"})) == END
+    def test_route_done_to_end(self):
+        from langgraph.graph import END
 
-    def test_route_never_returns_none_or_empty(self):
-        for status in ["idle", "presenting", "opposing", "judging", "done"]:
-            result = _route_after_referee(cast(AgentState, {"status": status}))
-            assert result is not None, f"status={status}: returned None"
-            assert result in ("next_round", END), f"status={status}: bad target '{result}'"
+        state = _make_state(status="done")
+        assert _route_after_referee(state) == END
+
+    def test_route_other_to_next_round(self):
+        non_done_statuses = [
+            "opponent_computing",
+            "awaiting_critique_response",
+            "presenter_computing",
+            "awaiting_thesis_confirmation",
+            "referee_deliberating",
+            "idle",
+        ]
+        for s in non_done_statuses:
+            state = _make_state(status=s)  # type: ignore[arg-type]
+            assert _route_after_referee(state) == "next_round", f"Failed for {s}"
+
+    def test_route_never_returns_ambiguous(self):
+        all_statuses = [
+            "idle", "opponent_computing", "awaiting_critique_response",
+            "presenter_computing", "awaiting_thesis_confirmation",
+            "referee_deliberating", "done",
+        ]
+        from langgraph.graph import END
+
+        for s in all_statuses:
+            state = _make_state(status=s)  # type: ignore[arg-type]
+            result = _route_after_referee(state)
+            assert result in (END, "next_round"), f"{s} → {result}"

@@ -10,161 +10,147 @@
 
 
 # =============================================================================
-# 陈述者 (Presenter) — 构建并阐述论点
-# =============================================================================
-
-PRESENTER_SYSTEM_PROMPT = """\
-你是一位严谨的学术辩论陈述者（Presenter）。你的职责是围绕给定话题，构建并阐述有说服力的论点。
-
-## 行为准则
-- 论点必须有清晰的结构：主张 → 论据 → 推理 → 结论。
-- 优先使用逻辑推理和事实性论据，避免纯情绪化表达。
-- 每个论点独立成段，段落之间逻辑递进。
-- 主动预判可能的反驳点，并在论述中预先回应。
-- 语言精炼，控制在 300 字以内。
-
-## 禁止行为
-- 不得扮演反驳者或裁判角色。
-- 不得在论点中自我否定或主动认输。
-- 不得使用「我觉得」「可能」「也许」等模糊措辞。
-"""
-
-
-def presenter_prompt(topic: str, opponent_previous: str = "") -> str:
-    """生成陈述者的完整用户提示。
-
-    Args:
-        topic: 本轮辩论主题。
-        opponent_previous: 上一轮反驳者的反驳内容（第一轮为空）。
-    """
-    if opponent_previous:
-        return (
-            f"辩论主题：{topic}\n\n"
-            f"上一轮反驳者的质疑：\n{opponent_previous}\n\n"
-            f"请针对上述质疑，重新构建你的论点。你可以修正之前的论述，"
-            f"也可以提出新的论据来回应质疑。"
-        )
-    return (
-        f"辩论主题：{topic}\n\n"
-        f"请围绕此主题，构建你的核心论点。记住：主张明确、论据充分、推理严谨。"
-    )
-
-
-# =============================================================================
-# 反驳者 (Opponent) — 寻找逻辑漏洞并反驳
+# 批判者 (Opponent) — 审视论题，找出漏洞
 # =============================================================================
 
 OPPONENT_SYSTEM_PROMPT = """\
-你是一位敏锐的学术辩论反驳者（Opponent）。你的职责是审视陈述者的论点，找出其中的逻辑漏洞、证据缺陷和推理谬误，并进行有力反驳。
+You are a rigorous academic critic. Your role is to examine a thesis statement \
+and identify its weaknesses, gaps, and ambiguities.
 
-## 行为准则
-- 逐条分析陈述者的论点，指出具体漏洞而非笼统否定。
-- 反驳类型包括但不限于：逻辑谬误、证据不足、因果倒置、以偏概全、偷换概念。
-- 每个反驳点需包含：指出问题 → 解释为什么是问题 → 提出反例或替代解释。
-- 保持学术礼貌，攻击论点而非人身。
-- 语言精炼，控制在 300 字以内。
+## Behavior
+- Identify specific logical flaws, unstated assumptions, or definitional \
+ambiguities in the thesis.
+- Point out what evidence would be needed to substantiate the thesis.
+- Suggest counterexamples or boundary conditions where the thesis might fail.
+- Be constructive: your critique should help refine the thesis, not merely attack it.
+- Keep responses under 300 words.
 
-## 禁止行为
-- 不得扮演陈述者或裁判角色。
-- 不得无理由地赞同陈述者。
-- 不得偏离辩论主题。
-- 不得使用侮辱性或情绪化语言。
+## Prohibitions
+- Do not propose an alternative thesis yourself — that is the Presenter's job.
+- Do not decide whether the debate should continue — that is the Referee's job.
+- Do not use emotional or dismissive language.
 """
 
 
-def opponent_prompt(topic: str, presenter_argument: str) -> str:
-    """生成反驳者的完整用户提示。
+def opponent_prompt(current_thesis: str) -> str:
+    """生成批判者的完整用户提示。
 
     Args:
-        topic: 本轮辩论主题。
-        presenter_argument: 陈述者本轮生成的论点全文。
+        current_thesis: 当前需要被审视的论题。
     """
     return (
-        f"辩论主题：{topic}\n\n"
-        f"陈述者的论点如下：\n{presenter_argument}\n\n"
-        f"请仔细审视上述论点，找出其中的逻辑漏洞或证据缺陷，"
-        f"并进行系统性反驳。"
+        f"Current thesis:\n{current_thesis}\n\n"
+        f"Please critique this thesis. Identify specific weaknesses, "
+        f"unstated assumptions, and potential counterexamples."
     )
 
 
 # =============================================================================
-# 裁判 (Referee) — 结构化评分与裁决
+# 精确化者 (Presenter) — 将用户回应转化为精确论题
+# =============================================================================
+
+PRESENTER_SYSTEM_PROMPT = """\
+You are a precise academic formulator. Your role is to take a user's informal \
+response to a critique and reformulate it into rigorous, precise thesis language.
+
+## Behavior
+- Read the original thesis, the critique, and the user's response.
+- Reformulate the user's response into a clear, defensible academic thesis statement.
+- Preserve the user's intent and substantive claims.
+- Improve precision: define ambiguous terms, qualify sweeping claims, \
+add necessary scope boundaries.
+- Keep the thesis concise (1-3 sentences).
+
+## Prohibitions
+- Do not introduce new claims the user did not make.
+- Do not critique — that is the Opponent's job.
+- Do not decide whether to continue — that is the Referee's job.
+"""
+
+
+def presenter_prompt(
+    current_thesis: str,
+    critique: str,
+    user_response: str,
+) -> str:
+    """生成精确化者的完整用户提示。
+
+    Args:
+        current_thesis: 当前论题（批判针对的对象）。
+        critique: Opponent 的批判文本。
+        user_response: 用户对批判的回应。
+    """
+    return (
+        f"Original thesis:\n{current_thesis}\n\n"
+        f"Critique received:\n{critique}\n\n"
+        f"User's response to the critique:\n{user_response}\n\n"
+        f"Please reformulate the user's response into a precise, "
+        f"academically rigorous thesis statement."
+    )
+
+
+# =============================================================================
+# 裁判 (Referee) — 拼合论题并判定
 # =============================================================================
 
 REFEREE_SYSTEM_PROMPT = """\
-你是一位公正的学术辩论裁判（Referee）。你的职责是对一轮辩论进行结构化评分，并给出详细裁决。
+You are an impartial academic referee. Your role is to synthesize the debate \
+round into an improved thesis and decide whether further refinement is needed.
 
-## 评分维度（每项 0-10 分，精确到 0.1）
-- clarity（清晰度）：论点结构是否清晰，表达是否易懂。
-- logic（逻辑性）：推理链条是否严谨，有无逻辑谬误。
-- evidence（论据）：是否有事实或数据支撑，论据是否相关。
-- persuasiveness（说服力）：整体是否令人信服。
+## Behavior
+- Compare the old thesis, the presenter's draft, and the user's confirmed thesis.
+- Synthesize them into a single improved thesis statement that incorporates \
+insights from all sources.
+- Decide whether the thesis is sufficiently refined to end the debate.
+- Continue if: the thesis still has unresolved ambiguities, or the synthesis \
+revealed new dimensions worth exploring.
+- End if: the thesis is clear, well-scoped, and defensible; or if the last \
+round produced no meaningful improvement.
 
-## 行为准则
-- 对双方使用完全相同的评分标准。
-- 评分必须有具体理由支撑，不可仅给分数。
-- 清晰指出双方的亮点和不足。
-- 给出建设性改进建议。
-- 胜者由双方综合得分决定，平局仅在全部分数相同时判定。
-
-## 禁止行为
-- 不得偏好某一方角色（陈述者或反驳者）。
-- 不得引入辩论主题之外的评判标准。
-- 不得给出无理由的分数。
-
-## 输出格式（严格 JSON）
-你必须只输出一个 JSON 对象，格式如下：
+## Output Format (strict JSON)
+You must output ONLY a JSON object matching this schema:
 ```json
 {
-  "round": <轮次编号>,
-  "presenter_score": {
-    "clarity": <0-10>,
-    "logic": <0-10>,
-    "evidence": <0-10>,
-    "persuasiveness": <0-10>
-  },
-  "opponent_score": {
-    "clarity": <0-10>,
-    "logic": <0-10>,
-    "evidence": <0-10>,
-    "persuasiveness": <0-10>
-  },
-  "presenter_total": <综合得分>,
-  "opponent_total": <综合得分>,
-  "winner": "<presenter|opponent|draw>",
-  "reasoning": "<详细评分理由>",
-  "presenter_strength": "<陈述者亮点>",
-  "presenter_weakness": "<陈述者不足>",
-  "opponent_strength": "<反驳者亮点>",
-  "opponent_weakness": "<反驳者不足>",
-  "improvement_hint": "<给双方的改进建议>"
+  "round": <round number>,
+  "continue_debate": <true or false>,
+  "new_thesis": "<synthesized thesis text>",
+  "reasoning": "<why this decision>",
+  "improvement_hint": "<what to focus on next round, or final assessment>"
 }
 ```
-注意：presenter_total 和 opponent_total 是各自四项得分的平均值，精确到 0.1。
+Do not include any text outside the JSON object.
 """
 
 
 def referee_prompt(
-    topic: str,
+    current_thesis: str,
+    draft_thesis: str,
+    confirmed_thesis: str,
     round_num: int,
-    presenter_argument: str,
-    opponent_rebuttal: str,
+    history_summary: str = "",
 ) -> str:
     """生成裁判的完整用户提示。
 
     Args:
-        topic: 本轮辩论主题。
+        current_thesis: 本轮开始时的论题。
+        draft_thesis: Presenter 精确化后的草稿。
+        confirmed_thesis: 用户确认后的论题。
         round_num: 当前轮次编号。
-        presenter_argument: 陈述者本轮论点全文。
-        opponent_rebuttal: 反驳者本轮反驳全文。
+        history_summary: 可选，之前轮次的摘要（用于终局判定）。
     """
-    return (
-        f"辩论主题：{topic}\n"
-        f"第 {round_num} 轮辩论\n\n"
-        f"=== 陈述者论点 ===\n{presenter_argument}\n\n"
-        f"=== 反驳者反驳 ===\n{opponent_rebuttal}\n\n"
-        f"请按 JSON 格式对双方进行结构化评分。只输出 JSON，不要带任何其他文字。"
+    parts = [
+        f"Round {round_num}",
+        f"=== Thesis entering this round ===\n{current_thesis}",
+        f"=== Presenter's draft thesis ===\n{draft_thesis}",
+        f"=== User-confirmed thesis ===\n{confirmed_thesis}",
+    ]
+    if history_summary:
+        parts.append(f"=== Prior round history ===\n{history_summary}")
+    parts.append(
+        "Synthesize these into an improved thesis and decide whether to continue. "
+        "Output only JSON per the schema."
     )
+    return "\n\n".join(parts)
 
 
 # =============================================================================
@@ -172,28 +158,34 @@ def referee_prompt(
 # =============================================================================
 
 FINAL_SUMMARY_PROMPT = """\
-你是一位学术辩论裁判。整场辩论已经结束。请根据所有轮次的辩论记录，撰写一份最终总结报告。
+You are an academic referee. The debate has concluded. Write a final summary \
+report on the thesis evolution process.
 
-报告应包含：
-1. 辩论主题回顾
-2. 各轮次要点概述
-3. 双方整体表现评价
-4. 最终胜负判定及理由
-5. 辩论中的关键转折点
+Your report should include:
+1. The initial thesis and how it changed over rounds.
+2. Key critiques that drove meaningful refinements.
+3. The final thesis and why it is considered sufficiently refined.
+4. Any remaining considerations or open questions.
 
-控制在 500 字以内，语言客观中立。
+Keep it under 500 words. Be objective and constructive.
 """
 
 
-def final_summary_prompt(topic: str, history_json: str) -> str:
+def final_summary_prompt(
+    initial_thesis: str,
+    final_thesis: str,
+    history_json: str,
+) -> str:
     """生成最终总结的用户提示。
 
     Args:
-        topic: 辩论主题。
+        initial_thesis: 用户最初提出的论题。
+        final_thesis: 演化后的最终论题。
         history_json: 所有轮次的 JSON 序列化记录。
     """
     return (
-        f"辩论主题：{topic}\n\n"
-        f"所有轮次记录：\n{history_json}\n\n"
-        f"请撰写最终总结报告。"
+        f"Initial thesis:\n{initial_thesis}\n\n"
+        f"Final thesis:\n{final_thesis}\n\n"
+        f"All round records:\n{history_json}\n\n"
+        f"Please write the final summary report on the thesis evolution."
     )
