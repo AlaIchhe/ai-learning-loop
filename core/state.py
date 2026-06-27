@@ -41,6 +41,7 @@ class AgentStateOverrides(TypedDict, total=False):
     _user_response: str
     _draft_thesis: str
     _confirmed_thesis: str
+    _improvement_hint: str
 
 
 class AgentState(TypedDict):
@@ -112,6 +113,11 @@ class AgentState(TypedDict):
     _confirmed_thesis: str
     """[轮次缓存] 用户确认（可能编辑）后的论题。
     由 presenter_interact 在 resume 后写入，referee_deliberate 读取。"""
+
+    _improvement_hint: str
+    """[轮次缓存] 裁判对下一轮批判方向的指引。
+    由 referee_deliberate 写入（来自 RefereeJudgment.improvement_hint），
+    opponent_compute 读取后传入 opponent_prompt()，由 _next_round_node 清除。"""
 
 
 #: LangGraph 节点函数的返回类型 —— 部分状态更新字典。

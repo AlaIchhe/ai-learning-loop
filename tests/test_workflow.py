@@ -40,6 +40,7 @@ def _make_initial_state(**overrides: object) -> AgentState:  # pyright: ignore[r
         "_user_response": "",
         "_draft_thesis": "",
         "_confirmed_thesis": "",
+        "_improvement_hint": "",
     }
     return cast(AgentState, {**defaults, **overrides})
 
@@ -185,12 +186,13 @@ class TestNextRoundNode:
         assert result["_draft_thesis"] == ""
         assert result["_confirmed_thesis"] == ""
 
-    def test_returns_exactly_five_keys(self):
+    def test_returns_exactly_six_keys(self):
         state = _make_initial_state(round=1)
         result = _next_round_node(state)
 
         assert set(result.keys()) == {
             "round", "_critique", "_user_response", "_draft_thesis", "_confirmed_thesis",
+            "_improvement_hint",
         }
 
 

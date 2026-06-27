@@ -108,6 +108,8 @@ def referee_deliberate_node(
         result["current_thesis"] = judgment.new_thesis
         result["status"] = "opponent_computing"
         result["messages"] = state["messages"]
+        # 将裁判的攻击方向指引写入轮次缓存，供下一轮 opponent 使用
+        result["_improvement_hint"] = judgment.improvement_hint
     else:
         # 辩论终止：生成最终总结，作为裁判消息展示给用户
         result["status"] = "done"

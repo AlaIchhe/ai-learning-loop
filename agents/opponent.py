@@ -43,7 +43,10 @@ def opponent_compute_node(
 
     system_msg = SystemMessage(content=OPPONENT_SYSTEM_PROMPT)
     user_msg = HumanMessage(
-        content=opponent_prompt(current_thesis=state["current_thesis"])
+        content=opponent_prompt(
+            current_thesis=state["current_thesis"],
+            improvement_hint=state.get("_improvement_hint", ""),
+        )
     )
 
     response = model.invoke([system_msg, user_msg])

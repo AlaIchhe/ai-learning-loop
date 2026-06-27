@@ -62,6 +62,7 @@ def _next_round_node(state: AgentState) -> dict:
         "_user_response": "",
         "_draft_thesis": "",
         "_confirmed_thesis": "",
+        "_improvement_hint": "",
     }
 
 

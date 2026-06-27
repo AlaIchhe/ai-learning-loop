@@ -208,6 +208,7 @@ def _on_start_debate(initial_thesis: str) -> None:
         "_user_response": "",
         "_draft_thesis": "",
         "_confirmed_thesis": "",
+        "_improvement_hint": "",
     }
 
     config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})

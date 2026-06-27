@@ -43,16 +43,25 @@ OPPONENT_SYSTEM_PROMPT = """\
 """
 
 
-def opponent_prompt(current_thesis: str) -> str:
+def opponent_prompt(
+    current_thesis: str,
+    improvement_hint: str = "",
+) -> str:
     """生成批判者的完整用户提示。
 
     Args:
         current_thesis: 当前需要被审视的论题。
+        improvement_hint: 上一轮裁判给出的攻击方向指引（首轮为空）。
     """
-    return (
-        f"请审视以下论题，找到其最薄弱的一个边界或隐含前提，选择最有攻击力的策略进行单点突破：\n\n"
-        f"{current_thesis}"
-    )
+    parts = [
+        "请审视以下论题，找到其最薄弱的一个边界或隐含前提，选择最有攻击力的策略进行单点突破：\n",
+        current_thesis,
+    ]
+    if improvement_hint:
+        parts.append(
+            f"\n\n【上一轮裁判建议的攻击方向】\n{improvement_hint}"
+        )
+    return "\n".join(parts)
 
 
 # =============================================================================

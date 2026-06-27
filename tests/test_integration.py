@@ -129,6 +129,7 @@ def _make_initial_state(thesis: str = "AI 应该被严格监管。") -> AgentSta
         "_user_response": "",
         "_draft_thesis": "",
         "_confirmed_thesis": "",
+        "_improvement_hint": "",
     }
 
 
