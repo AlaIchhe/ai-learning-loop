@@ -5,19 +5,20 @@ Workflow 图编排的单元测试。
 所有节点用纯函数 Mock，不涉及 LLM 调用。
 """
 
+from typing import Unpack, cast
 from unittest.mock import MagicMock
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END
 
-from core.state import AgentState
-from core.schemas import RefereeJudgment, CategoryScores
+from core.schemas import CategoryScores, RefereeJudgment
+from core.state import AgentState, AgentStateOverrides
 from workflow.graph import (
-    build_graph,
-    _start_node,
     _next_round_node,
     _route_after_referee,
+    _start_node,
+    build_graph,
 )
-
 
 # =============================================================================
 # Mock 节点工厂
@@ -66,7 +67,7 @@ def _mock_referee(state: AgentState) -> dict:
     }
 
 
-def _make_initial_state(**overrides) -> AgentState:
+def _make_initial_state(**overrides: Unpack[AgentStateOverrides]) -> AgentState:
     defaults: AgentState = {
         "topic": "测试主题",
         "round": 1,
@@ -79,8 +80,7 @@ def _make_initial_state(**overrides) -> AgentState:
         "history": [],
         "final_result": "",
     }
-    defaults.update(overrides)
-    return defaults
+    return cast(AgentState, {**defaults, **overrides})
 
 
 # =============================================================================
@@ -171,7 +171,7 @@ class TestBuildGraph:
         graph = build_graph(presenter_spy, opponent_spy, referee_spy)
 
         # invoke 会因 interrupt_before 暂停多次，需要用 thread
-        config = {"configurable": {"thread_id": "test-chain"}}
+        config = cast(RunnableConfig, {"configurable": {"thread_id": "test-chain"}})
         # 多次调用直到结束，每次经过一个 interrupt
         state = _make_initial_state()
         list(graph.stream(state, config))

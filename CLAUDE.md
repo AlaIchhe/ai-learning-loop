@@ -18,13 +18,16 @@ python -m pytest tests/ -v          # Run all tests
 
 # Code quality
 ruff check .                        # Lint (zero warnings)
+pyright .                           # Strict type check (zero errors)
 mypy core/ agents/ workflow/ --ignore-missing-imports  # Type check (zero errors)
 
-# Run the app
-streamlit run ui/app.py
+# Run the app (any of these work — all handle .env loading and path resolution)
+python run.py                       # Universal launcher (recommended)
+streamlit run ui/app.py             # Standard way (run from project root)
 
 # Export graph architecture diagram
-python -m workflow.graph            # → graph_architecture.png
+python run.py --export-graph        # → graph_architecture.png
+python -m workflow.graph            # Equivalent
 ```
 
 ## Environment Configuration
@@ -43,7 +46,15 @@ LANGCHAIN_API_KEY=lsv2_pt_your-key
 LANGCHAIN_PROJECT=ai-learning-loop
 ```
 
-The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. If neither is configured, `get_chat_model()` returns an instance with a placeholder key — the real error surfaces when the LLM is first invoked.
+The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. If neither is configured, `get_chat_model()` emits a `RuntimeWarning` with diagnostic instructions and uses a placeholder key — the real error surfaces when the LLM is first invoked.
+
+## Project Files
+
+| File | Purpose |
+|------|---------|
+| `pyproject.toml` | Project metadata, dependencies, ruff/mypy/pyright/pytest config |
+| `run.py` | Universal launcher — `python run.py` from any directory |
+| `requirements.txt` | Runtime dependencies |
 
 ## Architecture: Four-Layer Separation
 
@@ -56,7 +67,7 @@ core/{state,schemas,prompts,model}.py   ← System contracts all layers depend o
 
 ### 1. `core/` — Data Contracts (4 files)
 
-**`state.py`** — Single `AgentState(TypedDict)` with 10 fields:
+**`state.py`** — `AgentState(TypedDict)` with 10 fields, plus `AgentStateOverrides(TypedDict, total=False)` for partial construction and `NodeOutput = dict[str, object]` for node return types:
 
 | Group | Fields | Purpose |
 |-------|--------|---------|
@@ -70,7 +81,7 @@ core/{state,schemas,prompts,model}.py   ← System contracts all layers depend o
 
 **`prompts.py`** — Four system prompt constants and four template functions. Agents import these — no string hardcoding. Template functions only do string formatting.
 
-**`model.py`** — `get_chat_model(temperature)` reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` from env and returns a configured `ChatOpenAI`. Adding a new provider is a `.env` change, never a code change.
+**`model.py`** — `get_chat_model(temperature)` reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` from env and returns a configured `ChatOpenAI`. If no API key is found, emits a `RuntimeWarning` with diagnostic instructions. Adding a new provider is a `.env` change, never a code change.
 
 ### 2. `agents/` — Stateless Pure Functions
 
@@ -101,6 +112,7 @@ START → start_node → presenter → opponent → referee ──→ END (done)
 - **`start_node`**: `idle → presenting` (boot)
 - **`next_round_node`**: `round += 1`, clears current-round cache
 - **`_route_after_referee`**: `status == "done" → END`, else `"next_round"`
+- **`export_graph()`**: Public function to export architecture diagram as PNG. Callable via `python -m workflow.graph` or `debate-graph` entry point.
 - **`checkpointer`**: Must be passed for `interrupt_before` pause/resume and `get_state()` to work. Without it, the graph runs but interrupts will fail with `EmptyInputError`.
 - Default `interrupt_before=["presenter", "opponent", "referee"]`
 
@@ -110,7 +122,7 @@ Two separate state stores:
 - **`st.session_state`**: UI metadata only (`thread_id`, `api_key`, `debate_started`)
 - **LangGraph `MemorySaver`**: actual debate state, read-only via `graph.get_state(config)`
 
-`load_dotenv()` is called **before** any LangChain/LangGraph imports — this ordering is deliberate (enables `LANGCHAIN_TRACING_V2`). The `# noqa: E402` comment suppresses the ruff warning for this intentional pattern.
+`load_dotenv()` is called **before** any LangChain/LangGraph imports — this ordering is deliberate (enables `LANGCHAIN_TRACING_V2`). It resolves `.env` relative to the script's own location via `Path(__file__).resolve()`, so the app works even when launched from a different working directory. The `# noqa: E402` comment suppresses the ruff warning for this intentional pattern.
 
 Flow: `graph.invoke(initial_state, config)` → hits interrupt → user clicks "Continue" → `graph.invoke(None, config)` resumes from checkpoint.
 
@@ -132,7 +144,7 @@ All tests use Mock LLMs — no real API calls required.
 - **Referee uses `with_structured_output(RefereeJudgment)`**: Pydantic model forces valid JSON. Temperature is 0.0 for deterministic scoring. Return type guarded with `isinstance`.
 - **`checkpointer` is injected at graph build time**: Not an afterthought — `build_graph()` accepts it as a parameter and passes it to `workflow.compile()`.
 - **Multi-provider via env vars**: `get_chat_model()` reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY`. Adding a new provider is a `.env` edit, never a code change.
-- **Static analysis enforced**: Ruff (lint) and mypy (type check) both pass with zero issues on the `core/`, `agents/`, and `workflow/` source directories.
+- **Static analysis enforced**: Ruff (lint), pyright (strict mode), and mypy all pass with zero issues across the entire project.
 
 ## Adding a New Provider
 

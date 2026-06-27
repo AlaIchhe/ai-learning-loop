@@ -15,9 +15,19 @@
 
 每轮辩论结束后，裁判决定是进入下一轮还是终止辩论。
 
+## 代码质量
+
+项目通过三层静态分析，全部零告警：
+
+| 工具 | 命令 | 严格度 |
+|------|------|--------|
+| Ruff | `ruff check .` | 零告警 |
+| Pyright | `pyright .` | strict 模式零错误 |
+| Mypy | `mypy core/ agents/ workflow/` | 零错误 |
+
 ## 图结构
 
-运行 `python -m workflow.graph` 可导出最新架构图。
+运行 `python -m workflow.graph` 或 `python run.py --export-graph` 可导出最新架构图。
 
 ![Graph Architecture](graph_architecture.png)
 
@@ -74,15 +84,21 @@ pip install -r requirements.txt
 ### 启动界面
 
 ```bash
+# 推荐：通用启动器，自动处理路径和 .env 加载
+python run.py
+
+# 或者标准 Streamlit 方式（需在项目根目录执行）
 streamlit run ui/app.py
 ```
 
 在侧边栏输入辩论主题，点击「开始辩论」，然后逐步点击「继续」观察三位智能体的对抗过程。
 
+> **提示**：`python run.py` 从任意目录执行都能自动定位项目根目录并加载 `.env`。未找到 `.env` 时会给出提示，未配置 API Key 时会输出诊断警告。
+
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 34 个用例，无需真实 API
+python -m pytest tests/ -v    # 57 个用例，Mock LLM，无需真实 API
 ```
 
 ## 支持的大模型供应商
@@ -113,21 +129,25 @@ python -m pytest tests/ -v    # 34 个用例，无需真实 API
 ```
 ai-learning-loop/
 ├── core/                    # 核心契约（所有模块的依赖根）
-│   ├── state.py             # AgentState — 唯一的全局状态定义
+│   ├── state.py             # AgentState + AgentStateOverrides + NodeOutput
 │   ├── schemas.py           # Pydantic 结构化模型（RefereeJudgment 等）
 │   ├── prompts.py           # System Prompt 与模板函数
-│   └── model.py             # LLM 模型工厂（多供应商切换）
+│   └── model.py             # LLM 模型工厂（多供应商切换，缺失 API Key 自动警告）
 ├── agents/                  # 智能体节点（无状态纯函数）
 │   ├── presenter.py         # 陈述者：主题 → 论点
 │   ├── opponent.py          # 反驳者：论点 → 反驳
 │   └── referee.py           # 裁判：双方陈词 → 结构化评分
 ├── workflow/                # 编排层
-│   └── graph.py             # LangGraph 图组装、条件路由、断点配置
+│   └── graph.py             # LangGraph 图组装、条件路由、断点配置、export_graph()
 ├── ui/                      # 展现层
-│   └── app.py               # Streamlit 界面（纯渲染，不含业务逻辑）
-├── tests/                   # 测试（Mock LLM，不依赖真实 API）
+│   └── app.py               # Streamlit 界面（纯渲染，路径自适应 .env 加载）
+├── tests/                   # 测试（Mock LLM，57 个用例）
 │   ├── test_agents.py       # 22 个用例：节点输入输出契约
-│   └── test_workflow.py     # 12 个用例：调度节点、路由、图编译
+│   ├── test_workflow.py     # 12 个用例：调度节点、路由、图编译
+│   ├── test_integration.py  # 3 个用例：多轮端到端生命周期
+│   └── test_interfaces.py   # 20 个用例：跨层接口、序列化、checkpoint
+├── pyproject.toml           # 项目元数据、依赖、ruff/mypy/pyright/pytest 配置
+├── run.py                   # 通用启动器（从任意目录 python run.py）
 ├── .env.example             # 环境变量模板
 ├── requirements.txt
 ├── CLAUDE.md                # Claude Code 开发指南
@@ -159,6 +179,15 @@ ai-learning-loop/
 | `pydantic` | 结构化数据模型与校验 |
 | `streamlit` | Web UI |
 | `python-dotenv` | 加载 `.env` 环境变量 |
+
+### 开发依赖
+
+| 工具 | 用途 |
+|------|------|
+| `ruff` | 代码风格与 Lint（零告警） |
+| `pyright` | Strict 模式类型检查（零错误） |
+| `mypy` | 补充类型检查（零错误） |
+| `pytest` | 单元测试（57 个用例） |
 
 ## License
 

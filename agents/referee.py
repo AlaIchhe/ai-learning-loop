@@ -14,13 +14,13 @@
 - referee_judgment 字段为 RefereeJudgment 实例（Pydantic 模型）
 """
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 
-from core.state import AgentState
-from core.schemas import RefereeJudgment, RoundRecord
-from core.prompts import REFEREE_SYSTEM_PROMPT, referee_prompt
 from core.model import get_chat_model
+from core.prompts import REFEREE_SYSTEM_PROMPT, referee_prompt
+from core.schemas import RefereeJudgment, RoundRecord
+from core.state import AgentState
 
 
 def referee_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:

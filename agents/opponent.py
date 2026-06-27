@@ -12,12 +12,12 @@
 - 不修改 state 本身，不产生副作用
 """
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 
-from core.state import AgentState
-from core.prompts import OPPONENT_SYSTEM_PROMPT, opponent_prompt
 from core.model import get_chat_model
+from core.prompts import OPPONENT_SYSTEM_PROMPT, opponent_prompt
+from core.state import AgentState
 
 
 def opponent_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:

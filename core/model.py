@@ -10,7 +10,12 @@ Agent 节点通过 get_chat_model() 获取模型实例，
 """
 
 import os
+import warnings
+
 from langchain_openai import ChatOpenAI
+
+#: 未配置 API Key 时使用的占位符值。
+_PLACEHOLDER_API_KEY = "sk-not-configured"
 
 
 def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
@@ -29,21 +34,32 @@ def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
 
     其他 OpenAI 兼容供应商（如 Ollama、vLLM 等）同理。
 
+    若未配置任何 API Key，会在标准错误流输出诊断信息，
+    并将占位符传入 ChatOpenAI——真正调用 LLM 时才会因鉴权失败而报错。
+
     Args:
         temperature: 0.0 用于裁判（确定性评分），0.7 用于陈述者和反驳者。
+
+    Returns:
+        配置好的 ChatOpenAI 实例。
     """
     model_name = os.getenv("LLM_MODEL", "gpt-4o")
-    base_url = os.getenv("LLM_BASE_URL", None)
+    base_url = os.getenv("LLM_BASE_URL") or None
     api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or None
 
-    kwargs: dict = {"model": model_name, "temperature": temperature}
-    if base_url:
-        kwargs["base_url"] = base_url
-    if api_key:
-        kwargs["api_key"] = api_key
-    else:
-        # 未配置任何 API Key 时用占位符，避免 ChatOpenAI.__init__ 立即抛异常。
-        # 真正调用 LLM 时才会因鉴权失败而报错。
-        kwargs["api_key"] = "sk-not-configured"
+    if not api_key:
+        warnings.warn(
+            "未检测到 LLM_API_KEY 或 OPENAI_API_KEY 环境变量。"
+            "请在项目根目录的 .env 文件中配置 API Key，"
+            "或通过环境变量设置。示例：LLM_API_KEY=sk-your-key",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        api_key = _PLACEHOLDER_API_KEY
 
-    return ChatOpenAI(**kwargs)
+    return ChatOpenAI(
+        model=model_name,
+        temperature=temperature,
+        base_url=base_url,
+        api_key=api_key,  # type: ignore[arg-type]  # langchain 类型桩使用 SecretStr
+    )

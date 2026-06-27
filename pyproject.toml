@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "ai-learning-loop"
+version = "1.0.0"
+description = "多智能体辩论学习系统 —— 基于 LangGraph 的三智能体对抗与精炼模型"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "pydantic>=2.0.0",
+    "streamlit>=1.28.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+    "ruff>=0.8.0",
+    "mypy>=2.0",
+    "pyright>=1.1.400",
+]
+
+[project.scripts]
+debate-graph = "workflow.graph:export_graph"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = ["venv", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "C4", "RUF100"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+python_files = "test_*.py"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_equality = true
+files = ["core/", "agents/", "workflow/"]
+ignore_missing_imports = true
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["core", "agents", "workflow", "ui", "tests"]
+exclude = ["venv"]
+# 第三方库类型桩缺失不属于本项目问题
+reportMissingTypeStubs = false
+# 测试访问私有函数（_start_node 等）是白盒测试的标准实践
+reportPrivateUsage = "none"
+# LangChain/LangGraph 返回类型由运行时确定，严格推断会导致误报
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+# LangGraph 节点返回的是异构部分状态更新 dict，值类型不可预知
+reportUnknownParameterType = "none"
+reportMissingTypeArgument = "none"
+# build_graph 参数使用依赖注入，checkpointer 类型来自 langgraph 内部
+reportMissingParameterType = "none"

@@ -7,8 +7,28 @@ LangGraph 要求状态可序列化，因此字段类型限定为：
 - Pydantic BaseModel（运行时会转为 dict）
 """
 
-from typing import TypedDict, Literal
-from core.schemas import RoundRecord, RefereeJudgment
+from typing import Literal, TypedDict
+
+from core.schemas import RefereeJudgment, RoundRecord
+
+
+class AgentStateOverrides(TypedDict, total=False):
+    """AgentState 的偏量覆盖类型，用于结构化构造 state 的辅助函数。
+
+    所有字段均为 NotRequired（total=False），调用方可仅传入需覆盖的键。
+    配合 typing.Unpack 用于函数的 **kwargs 签名。
+    """
+
+    topic: str
+    round: int
+    max_rounds: int
+    status: Literal["idle", "presenting", "opposing", "judging", "done"]
+    messages: list[dict[str, object]]
+    presenter_argument: str
+    opponent_rebuttal: str
+    referee_judgment: RefereeJudgment | None
+    history: list[RoundRecord]
+    final_result: str
 
 
 class AgentState(TypedDict):
@@ -44,7 +64,7 @@ class AgentState(TypedDict):
     """
 
     # === 对话历史 ===
-    messages: list[dict]
+    messages: list[dict[str, object]]
     """全局消息列表。每条消息为 dict，包含 role / content / round 等字段。
     节点通过返回 {'messages': state['messages'] + [new_msg]} 来追加。
     使用普通 list 的原因：LangChain add_messages 仅接受
@@ -68,3 +88,8 @@ class AgentState(TypedDict):
     # === 最终汇总 ===
     final_result: str
     """辩论结束后的总结报告（纯文本，由裁判在最后一轮后生成）。"""
+
+
+#: LangGraph 节点函数的返回类型 —— 部分状态更新字典。
+#: 值类型为 object 因为各节点返回不同字段组合（str / int / Pydantic 模型 / list / None）。
+NodeOutput = dict[str, object]

@@ -11,23 +11,33 @@ Streamlit 展现层 —— 纯渲染与输入收集。
 # .env 必须在所有 LangChain/LangGraph import 之前加载，
 # 否则 LANGCHAIN_TRACING_V2 等环境变量不会生效。
 # ruff: noqa: E402
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv()
+# 从脚本所在位置向上查找项目根目录的 .env，
+# 确保无论从哪个目录启动 streamlit run 都能正确加载环境变量。
+_project_root = Path(__file__).resolve().parent.parent
+_env_path = _project_root / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()  # fallback: 尝试 cwd 或父目录自动搜索
 
 import os
+from typing import cast
 from uuid import uuid4
 
 import streamlit as st
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 
-from core.state import AgentState
-from core.schemas import RefereeJudgment
-from agents.presenter import presenter_node
 from agents.opponent import opponent_node
+from agents.presenter import presenter_node
 from agents.referee import referee_node
+from core.schemas import RefereeJudgment
+from core.state import AgentState
 from workflow.graph import build_graph
-
 
 # =============================================================================
 # 页面配置
@@ -85,7 +95,7 @@ def _render_sidebar() -> None:
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🚀 开始辩论", disabled=disabled, use_container_width=True):
-                _on_start_debate(topic, max_rounds)
+                _on_start_debate(topic or "AI 是否应该被严格监管？", max_rounds)
         with col2:
             if st.button("🔄 重置", use_container_width=True):
                 _on_reset()
@@ -135,7 +145,7 @@ def _on_start_debate(topic: str, max_rounds: int) -> None:
         "final_result": "",
     }
 
-    config = {"configurable": {"thread_id": thread_id}}
+    config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
     # 首次调用：从 idle 走到第一个 interrupt_before（presenter）
     graph.invoke(initial_state, config)
     st.rerun()
@@ -161,7 +171,7 @@ def _on_continue() -> None:
     thread_id = st.session_state.get("thread_id")
     if graph is None or thread_id is None:
         return
-    config = {"configurable": {"thread_id": thread_id}}
+    config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
     # 传入 None 表示从当前 checkpoint 恢复
     graph.invoke(None, config)
     st.rerun()
@@ -181,7 +191,7 @@ def _get_current_state() -> AgentState | None:
     thread_id = st.session_state.get("thread_id")
     if graph is None or thread_id is None:
         return None
-    config = {"configurable": {"thread_id": thread_id}}
+    config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
     snapshot = graph.get_state(config)
     if snapshot is None or snapshot.values is None:
         return None
@@ -246,10 +256,7 @@ def _render_judgment(judgment: RefereeJudgment | dict | None) -> None:
     if judgment is None:
         return
     # 兼容 dict 和 RefereeJudgment 实例
-    if isinstance(judgment, dict):
-        j = judgment
-    else:
-        j = judgment.model_dump()
+    j = judgment if isinstance(judgment, dict) else judgment.model_dump()
 
     st.divider()
     st.subheader("📊 本轮评分")

@@ -4,23 +4,23 @@ Agent 节点的单元测试。
 所有测试通过 Mock LLM 来验证输入输出契约，不依赖真实 API 调用。
 """
 
+from typing import Unpack, cast
 from unittest.mock import MagicMock
 
 from langchain_core.messages import HumanMessage
 
-from core.state import AgentState
-from core.schemas import RefereeJudgment, CategoryScores, RoundRecord
 from agents.opponent import opponent_node
 from agents.presenter import presenter_node
 from agents.referee import referee_node
-
+from core.schemas import CategoryScores, RefereeJudgment, RoundRecord
+from core.state import AgentState, AgentStateOverrides
 
 # =============================================================================
 # 测试夹具
 # =============================================================================
 
 
-def _make_state(**overrides) -> AgentState:
+def _make_state(**overrides: Unpack[AgentStateOverrides]) -> AgentState:
     """构造测试用的最小合法 state。"""
     defaults: AgentState = {
         "topic": "AI 是否应该被严格监管？",
@@ -34,8 +34,7 @@ def _make_state(**overrides) -> AgentState:
         "history": [],
         "final_result": "",
     }
-    defaults.update(overrides)
-    return defaults
+    return cast(AgentState, {**defaults, **overrides})
 
 
 def _make_mock_model(response_text: str = "这是一个测试反驳。陈述者的论点存在逻辑漏洞...") -> MagicMock:

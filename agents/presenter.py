@@ -12,12 +12,12 @@
 - 不修改 state 本身，不产生副作用
 """
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
 
-from core.state import AgentState
-from core.prompts import PRESENTER_SYSTEM_PROMPT, presenter_prompt
 from core.model import get_chat_model
+from core.prompts import PRESENTER_SYSTEM_PROMPT, presenter_prompt
+from core.state import AgentState
 
 
 def presenter_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
@@ -44,7 +44,7 @@ def presenter_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
     opponent_previous = ""
     for msg in reversed(state["messages"]):
         if msg.get("role") == "opponent":
-            opponent_previous = msg["content"]
+            opponent_previous = str(msg["content"])
             break
 
     # 组装消息

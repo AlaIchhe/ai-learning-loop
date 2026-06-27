@@ -17,10 +17,12 @@ LangGraph 编排层 —— 纯粹的流转调度。
                           └── "done" → END
 """
 
-from langgraph.graph import StateGraph, END
+from collections.abc import Callable
+from pathlib import Path
+
+from langgraph.graph import END, StateGraph
 
 from core.state import AgentState
-
 
 # =============================================================================
 # 纯调度节点（无 LLM 逻辑）
@@ -71,9 +73,9 @@ def _route_after_referee(state: AgentState) -> str:
 
 
 def build_graph(
-    presenter_node,
-    opponent_node,
-    referee_node,
+    presenter_node: Callable[[AgentState], dict],
+    opponent_node: Callable[[AgentState], dict],
+    referee_node: Callable[[AgentState], dict],
     interrupt_before: list[str] | None = None,
     checkpointer=None,
 ):
@@ -103,10 +105,12 @@ def build_graph(
     workflow = StateGraph(AgentState)
 
     # 注册所有节点
+    # type: ignore 是因为 LangGraph 的类型桩要求 position-only 的 state 参数，
+    # 但 Python 函数使用常规参数 —— 运行时完全兼容。
     workflow.add_node("start", _start_node)
-    workflow.add_node("presenter", presenter_node)
-    workflow.add_node("opponent", opponent_node)
-    workflow.add_node("referee", referee_node)
+    workflow.add_node("presenter", presenter_node)  # type: ignore[arg-type]
+    workflow.add_node("opponent", opponent_node)  # type: ignore[arg-type]
+    workflow.add_node("referee", referee_node)  # type: ignore[arg-type]
     workflow.add_node("next_round", _next_round_node)
 
     # 固定边
@@ -136,21 +140,33 @@ def build_graph(
 
 
 # =============================================================================
-# 直接运行本模块时，导出当前图结构为 PNG
+# 图结构导出（可通过 python -m workflow.graph 或 debate-graph 入口调用）
 # =============================================================================
 
-if __name__ == "__main__":
-    from pathlib import Path
 
-    from agents.presenter import presenter_node
+def export_graph(output_filename: str = "graph_architecture.png") -> Path:
+    """导出当前 LangGraph 架构图为 PNG 文件。
+
+    Args:
+        output_filename: 输出文件名（默认 graph_architecture.png）。
+
+    Returns:
+        输出文件的绝对路径。
+    """
     from agents.opponent import opponent_node
+    from agents.presenter import presenter_node
     from agents.referee import referee_node
 
     graph = build_graph(presenter_node, opponent_node, referee_node)
     png_data = graph.get_graph().draw_mermaid_png()
 
     root_dir = Path(__file__).resolve().parent.parent
-    output_path = root_dir / "graph_architecture.png"
+    output_path = root_dir / output_filename
     output_path.write_bytes(png_data)
 
     print(f"图结构已导出: {output_path} ({len(png_data):,} bytes)")
+    return output_path
+
+
+if __name__ == "__main__":
+    export_graph()

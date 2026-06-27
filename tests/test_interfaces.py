@@ -10,26 +10,27 @@
 - LangGraph checkpoint 存储/恢复的 fidelity
 """
 
+from typing import Unpack, cast
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 
-from core.state import AgentState
-from core.schemas import (
-    Message,
-    RefereeJudgment,
-    CategoryScores,
-    RoundRecord,
-    DebateResult,
-)
 from core.prompts import (
-    presenter_prompt,
     opponent_prompt,
+    presenter_prompt,
     referee_prompt,
 )
-from workflow.graph import build_graph, _start_node, _next_round_node, _route_after_referee
-
+from core.schemas import (
+    CategoryScores,
+    DebateResult,
+    Message,
+    RefereeJudgment,
+    RoundRecord,
+)
+from core.state import AgentState, AgentStateOverrides
+from workflow.graph import _next_round_node, _route_after_referee, _start_node, build_graph
 
 # =============================================================================
 # 1. Prompt 接口：State 字段 → 模板 → 正确字符串
@@ -88,7 +89,8 @@ class TestPromptInterface:
 def _test_presenter(state: AgentState) -> dict:
     return {
         "presenter_argument": f"论点-{state['topic']}",
-        "messages": state["messages"] + [{"role": "presenter", "content": f"论点-{state['topic']}", "round": state["round"]}],
+        "messages": state["messages"]
+        + [{"role": "presenter", "content": f"论点-{state['topic']}", "round": state["round"]}],
         "status": "opposing",
     }
 
@@ -96,7 +98,8 @@ def _test_presenter(state: AgentState) -> dict:
 def _test_opponent(state: AgentState) -> dict:
     return {
         "opponent_rebuttal": f"反驳-{state['presenter_argument'][:10]}",
-        "messages": state["messages"] + [{"role": "opponent", "content": f"反驳-{state['presenter_argument'][:10]}", "round": state["round"]}],
+        "messages": state["messages"]
+        + [{"role": "opponent", "content": f"反驳-{state['presenter_argument'][:10]}", "round": state["round"]}],
         "status": "judging",
     }
 
@@ -119,8 +122,17 @@ def _test_referee(state: AgentState) -> dict:
     next_status = "done" if state["round"] >= state["max_rounds"] else "presenting"
     return {
         "referee_judgment": j,
-        "messages": state["messages"] + [{"role": "referee", "content": f"裁决-R{state['round']}", "round": state["round"]}],
-        "history": state["history"] + [RoundRecord(round_number=state["round"], presenter_argument=state["presenter_argument"], opponent_rebuttal=state["opponent_rebuttal"], judgment=j)],
+        "messages": state["messages"]
+        + [{"role": "referee", "content": f"裁决-R{state['round']}", "round": state["round"]}],
+        "history": state["history"]
+        + [
+            RoundRecord(
+                round_number=state["round"],
+                presenter_argument=state["presenter_argument"],
+                opponent_rebuttal=state["opponent_rebuttal"],
+                judgment=j,
+            )
+        ],
         "status": next_status,
     }
 
@@ -128,14 +140,13 @@ def _test_referee(state: AgentState) -> dict:
 class TestNodeOutputInterface:
     """验证节点输出 dict 可安全合并回 State。"""
 
-    def _initial_state(self, **overrides) -> AgentState:
-        s: AgentState = {
+    def _initial_state(self, **overrides: Unpack[AgentStateOverrides]) -> AgentState:
+        defaults: AgentState = {
             "topic": "测试", "round": 1, "max_rounds": 2, "status": "presenting",
             "messages": [], "presenter_argument": "", "opponent_rebuttal": "",
             "referee_judgment": None, "history": [], "final_result": "",
         }
-        s.update(overrides)
-        return s
+        return cast(AgentState, {**defaults, **overrides})
 
     def test_presenter_output_keys_match_state(self):
         result = _test_presenter(self._initial_state())
@@ -147,7 +158,10 @@ class TestNodeOutputInterface:
         assert len(result["messages"]) == 1
 
     def test_opponent_output_keys_match_state(self):
-        s = self._initial_state(presenter_argument="论点内容", messages=[{"role": "presenter", "content": "论点内容", "round": 1}])
+        s = self._initial_state(
+            presenter_argument="论点内容",
+            messages=[{"role": "presenter", "content": "论点内容", "round": 1}],
+        )
         result = _test_opponent(s)
         for key in result:
             assert key in AgentState.__annotations__, f"Key '{key}' not in AgentState"
@@ -181,22 +195,27 @@ class TestNodeOutputInterface:
         msg = r1["messages"][-1]
         assert expected_keys.issubset(msg.keys()), f"presenter msg missing keys: {expected_keys - set(msg.keys())}"
 
-        s2 = {**s, **r1}
+        s2 = cast(AgentState, {**s, **r1})
         r2 = _test_opponent(s2)
         msg = r2["messages"][-1]
         assert expected_keys.issubset(msg.keys()), "opponent msg missing keys"
 
-        s3 = {**s2, **r2}
+        s3 = cast(AgentState, {**s2, **r2})
         r3 = _test_referee(s3)
         msg = r3["messages"][-1]
         assert expected_keys.issubset(msg.keys()), "referee msg missing keys"
 
     def test_scheduler_nodes_dont_leak_keys(self):
         """调度节点只返回声明的 key，不污染 State。"""
-        r1 = _start_node({"status": "idle"})
+        r1 = _start_node(cast(AgentState, {"status": "idle"}))
         assert set(r1.keys()) == {"status"}
 
-        r2 = _next_round_node({"round": 1, "presenter_argument": "x", "opponent_rebuttal": "y", "referee_judgment": None})
+        r2 = _next_round_node(
+            cast(
+                AgentState,
+                {"round": 1, "presenter_argument": "x", "opponent_rebuttal": "y", "referee_judgment": None},
+            )
+        )
         assert set(r2.keys()) == {"round", "presenter_argument", "opponent_rebuttal", "referee_judgment"}
 
 
@@ -266,7 +285,16 @@ class TestSerializationFidelity:
             opponent_strength="", opponent_weakness="", improvement_hint="",
         )
         r = RoundRecord(round_number=1, presenter_argument="A", opponent_rebuttal="B", judgment=j)
-        result = DebateResult(topic="X", total_rounds=1, winner="presenter", presenter_wins=1, opponent_wins=0, draws=0, rounds=[r], summary="总结")
+        result = DebateResult(
+            topic="X",
+            total_rounds=1,
+            winner="presenter",
+            presenter_wins=1,
+            opponent_wins=0,
+            draws=0,
+            rounds=[r],
+            summary="总结",
+        )
         assert result.presenter_wins + result.opponent_wins + result.draws == result.total_rounds
 
 
@@ -286,7 +314,7 @@ class TestCheckpointInterface:
             checkpointer=checkpointer,
         )
         tid = str(uuid4())
-        config = {"configurable": {"thread_id": tid}}
+        config = cast(RunnableConfig, {"configurable": {"thread_id": tid}})
 
         initial: AgentState = {
             "topic": "端到端接口测试",
@@ -334,7 +362,7 @@ class TestCheckpointInterface:
             checkpointer=checkpointer,
         )
         tid = str(uuid4())
-        config = {"configurable": {"thread_id": tid}}
+        config = cast(RunnableConfig, {"configurable": {"thread_id": tid}})
 
         s: AgentState = {
             "topic": "持久性测试", "round": 1, "max_rounds": 2, "status": "idle",
@@ -368,14 +396,14 @@ class TestRoutingInterface:
 
     def test_all_status_values_map_correctly(self):
         """status 的 5 种值只有 'done' 映射到 END。"""
-        assert _route_after_referee({"status": "presenting"}) == "next_round"
-        assert _route_after_referee({"status": "opposing"}) == "next_round"
-        assert _route_after_referee({"status": "judging"}) == "next_round"
-        assert _route_after_referee({"status": "idle"}) == "next_round"
-        assert _route_after_referee({"status": "done"}) == END
+        assert _route_after_referee(cast(AgentState, {"status": "presenting"})) == "next_round"
+        assert _route_after_referee(cast(AgentState, {"status": "opposing"})) == "next_round"
+        assert _route_after_referee(cast(AgentState, {"status": "judging"})) == "next_round"
+        assert _route_after_referee(cast(AgentState, {"status": "idle"})) == "next_round"
+        assert _route_after_referee(cast(AgentState, {"status": "done"})) == END
 
     def test_route_never_returns_none_or_empty(self):
         for status in ["idle", "presenting", "opposing", "judging", "done"]:
-            result = _route_after_referee({"status": status})
+            result = _route_after_referee(cast(AgentState, {"status": status}))
             assert result is not None, f"status={status}: returned None"
             assert result in ("next_round", END), f"status={status}: bad target '{result}'"
