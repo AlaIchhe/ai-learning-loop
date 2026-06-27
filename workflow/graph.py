@@ -126,3 +126,25 @@ def build_graph(
 
     # 编译图，配置断点
     return workflow.compile(interrupt_before=interrupt_before)
+
+
+# =============================================================================
+# 直接运行本模块时，导出当前图结构为 PNG
+# =============================================================================
+
+if __name__ == "__main__":
+    import os
+    from pathlib import Path
+
+    from agents.presenter import presenter_node
+    from agents.opponent import opponent_node
+    from agents.referee import referee_node
+
+    graph = build_graph(presenter_node, opponent_node, referee_node)
+    png_data = graph.get_graph().draw_mermaid_png()
+
+    root_dir = Path(__file__).resolve().parent.parent
+    output_path = root_dir / "graph_architecture.png"
+    output_path.write_bytes(png_data)
+
+    print(f"图结构已导出: {output_path} ({len(png_data):,} bytes)")
