@@ -8,6 +8,12 @@ Streamlit 展现层 —— 纯渲染与输入收集。
 3. 每个渲染函数只读取数据并绘制，不修改 graph state。
 """
 
+# .env 必须在所有 LangChain/LangGraph import 之前加载，
+# 否则 LANGCHAIN_TRACING_V2 等环境变量不会生效。
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import os
 from uuid import uuid4
 
