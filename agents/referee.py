@@ -3,10 +3,16 @@ Referee 节点 —— 论题拼合者与终局判定者。
 
 职责：
 1. 读取本轮的所有输入（current_thesis / _draft_thesis / _confirmed_thesis）。
-2. 使用结构化输出调用 LLM，强制输出符合 RefereeJudgment schema 的 JSON。
+2. 调用 LLM 获取结构化裁定（支持两种策略：with_structured_output / JSON-mode）。
 3. 将本轮论题演化归档为 RoundRecord 追加到 history。
 4. 判定是否继续下一轮或结束辩论。
 5. 结束时生成 final_result。
+
+策略说明：
+- 默认使用 with_structured_output（OpenAI 原生支持）。
+- 设置 json_mode=True 可切换到 JSON-mode 手动解析（DeepSeek 等不支持
+  with_structured_output 的提供商）。
+- 两种策略共享相同的归档、路由和总结生成逻辑。
 
 契约：
 - 输入：完整的 AgentState（TypedDict）
@@ -15,6 +21,7 @@ Referee 节点 —— 论题拼合者与终局判定者。
 """
 
 import json
+import re
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -30,19 +37,27 @@ from core.prompts import (
 from core.schemas import RefereeJudgment, RoundRecord
 from core.state import AgentState
 
+# =============================================================================
+# 公开 API
+# =============================================================================
+
 
 def referee_deliberate_node(
-    state: AgentState, model: BaseChatModel | None = None
+    state: AgentState,
+    model: BaseChatModel | None = None,
+    *,
+    json_mode: bool = False,
 ) -> dict:
     """裁判审议节点：拼合论题并判定是否继续。
 
-    使用 with_structured_output 确保 LLM 输出严格符合 RefereeJudgment schema。
-    审议后将本轮归档为 RoundRecord，并判定继续或结束。
+    支持两种 LLM 输出策略：
+    - json_mode=False（默认）：使用 with_structured_output（OpenAI 等提供商）。
+    - json_mode=True：使用 JSON-mode 提示 + 手动解析（DeepSeek 等提供商）。
 
     Args:
-        state: 全局 AgentState，至少需包含 current_thesis / _draft_thesis /
-               _confirmed_thesis / round / messages / history。
+        state: 全局 AgentState。
         model: 可注入的 LLM 实例。默认通过 get_chat_model() 读取配置。
+        json_mode: 是否使用 JSON-mode 手动解析（默认 False）。
 
     Returns:
         dict，包含以下键：
@@ -51,41 +66,22 @@ def referee_deliberate_node(
         - history: list[RoundRecord]   追加了本轮归档的列表
         - status: "opponent_computing" | "done"
         - final_result: str            终局总结报告（仅 done 时）
+        - _improvement_hint: str       下一轮批判方向指引（仅 continue 时）
     """
     if model is None:
         model = get_chat_model(temperature=0.0)
 
-    # --- Step 1: 结构化输出，获取 RefereeJudgment ---
-    structured_model = model.with_structured_output(RefereeJudgment)
+    # --- Step 1: 获取 RefereeJudgment ---
+    history_summary = _build_history_summary(state)
 
-    # 构建历史摘要（用于终局判定上下文）
-    # 注：checkpointer 恢复时 Pydantic 模型会序列化为 dict，故需兼容两种访问方式
-    history_summary = ""
-    if state["history"]:
-        summaries = []
-        for r in state["history"]:
-            rn = r.round_number if hasattr(r, "round_number") else r.get("round_number", "?")  # type: ignore[union-attr]
-            tb = r.thesis_before if hasattr(r, "thesis_before") else r.get("thesis_before", "?")  # type: ignore[union-attr]
-            ta = r.thesis_after if hasattr(r, "thesis_after") else r.get("thesis_after", "?")  # type: ignore[union-attr]
-            cb = r.continue_debate if hasattr(r, "continue_debate") else r.get("continue_debate", "?")  # type: ignore[union-attr]
-            summaries.append(f"Round {rn}: {tb} -> {ta} (continue: {cb})")
-        history_summary = "\n".join(summaries)
-
-    system_msg = SystemMessage(content=REFEREE_SYSTEM_PROMPT)
-    user_msg = HumanMessage(
-        content=referee_prompt(
-            current_thesis=state["current_thesis"],
-            draft_thesis=state["_draft_thesis"],
-            confirmed_thesis=state["_confirmed_thesis"],
-            round_num=state["round"],
-            history_summary=history_summary,
+    if json_mode:
+        judgment = _judge_via_json_mode(
+            model, state, history_summary,
         )
-    )
-
-    raw = invoke_with_retry(
-        structured_model, [system_msg, user_msg], label="RefereeJudgment"
-    )
-    judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)  # type: ignore[arg-type]
+    else:
+        judgment = _judge_via_structured_output(
+            model, state, history_summary,
+        )
 
     # --- Step 2: 本轮归档 ---
     round_record = RoundRecord(
@@ -106,40 +102,168 @@ def referee_deliberate_node(
 
     # --- Step 3: 判定路由 ---
     if judgment.continue_debate:
-        # 正常轮次：静默更新论题，不产生对用户可见的消息
         result["current_thesis"] = judgment.new_thesis
         result["status"] = "opponent_computing"
         result["messages"] = state["messages"]
-        # 将裁判的攻击方向指引写入轮次缓存，供下一轮 opponent 使用
         result["_improvement_hint"] = judgment.improvement_hint
     else:
-        # 辩论终止：生成最终总结，作为裁判消息展示给用户
         result["status"] = "done"
-
-        history_json = json.dumps(
-            [r.model_dump() for r in result["history"]],
-            ensure_ascii=False,
-        )
-        summary_system = SystemMessage(content=FINAL_SUMMARY_PROMPT)
-        summary_user = HumanMessage(
-            content=final_summary_prompt(
-                initial_thesis=_get_initial_thesis(state),
-                final_thesis=judgment.new_thesis,
-                history_json=history_json,
-            )
-        )
-        summary_response = invoke_with_retry(
-            model, [summary_system, summary_user], label="FinalSummary"
-        )
-        final_result = extract_content(summary_response).strip()
-
-        # 将最终总结作为裁判消息写入对话历史
+        final_summary_text = _generate_final_summary(model, state, result, judgment)
         result["messages"] = state["messages"] + [
-            make_message("referee", final_result, state["round"])
+            make_message("referee", final_summary_text, state["round"])
         ]
-        result["final_result"] = final_result
+        result["final_result"] = final_summary_text
 
     return result
+
+
+# =============================================================================
+# 策略实现：with_structured_output（默认）
+# =============================================================================
+
+
+def _judge_via_structured_output(
+    model: BaseChatModel,
+    state: AgentState,
+    history_summary: str,
+) -> RefereeJudgment:
+    """使用 with_structured_output 获取裁判裁定。"""
+    structured_model = model.with_structured_output(RefereeJudgment)
+
+    system_msg = SystemMessage(content=REFEREE_SYSTEM_PROMPT)
+    user_msg = HumanMessage(
+        content=referee_prompt(
+            current_thesis=state["current_thesis"],
+            draft_thesis=state["_draft_thesis"],
+            confirmed_thesis=state["_confirmed_thesis"],
+            round_num=state["round"],
+            history_summary=history_summary,
+        )
+    )
+
+    raw = invoke_with_retry(
+        structured_model, [system_msg, user_msg], label="RefereeJudgment"
+    )
+    return raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)  # type: ignore[arg-type]
+
+
+# =============================================================================
+# 策略实现：JSON-mode 手动解析（DeepSeek 等兼容方案）
+# =============================================================================
+
+
+def _judge_via_json_mode(
+    model: BaseChatModel,
+    state: AgentState,
+    history_summary: str,
+) -> RefereeJudgment:
+    """使用 JSON-mode 提示 + 手动解析获取裁判裁定。
+
+    DeepSeek 等不支持 with_structured_output 的提供商使用此路径。
+    流程：常规 LLM 调用 → regex 提取 JSON → Pydantic 验证。
+    """
+    system_msg = SystemMessage(content=REFEREE_SYSTEM_PROMPT)
+    user_msg = HumanMessage(
+        content=referee_prompt(
+            current_thesis=state["current_thesis"],
+            draft_thesis=state["_draft_thesis"],
+            confirmed_thesis=state["_confirmed_thesis"],
+            round_num=state["round"],
+            history_summary=history_summary,
+        )
+    )
+
+    response = invoke_with_retry(
+        model, [system_msg, user_msg], label="RefereeJudgment(JSON-mode)"
+    )
+    content = extract_content(response).strip()
+
+    parsed = _extract_json(content)
+    if parsed is None:
+        raise ValueError(f"无法从裁判响应中解析 JSON:\n{content[:500]}")
+
+    return RefereeJudgment(**parsed)
+
+
+def _extract_json(text: str) -> dict | None:
+    """从 LLM 响应中提取 JSON 对象。兼容含 Markdown 代码块的输出。
+
+    按优先级尝试：
+    1. 直接 json.loads 全文
+    2. 提取 ```json ... ``` 代码块
+    3. 提取最外层 { ... } 块
+    """
+    # 直接解析
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # 提取 ```json ... ``` 代码块
+    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # 提取最外层 { ... }
+    brace_start = text.find("{")
+    brace_end = text.rfind("}")
+    if brace_start != -1 and brace_end > brace_start:
+        try:
+            return json.loads(text[brace_start:brace_end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
+# =============================================================================
+# 共享辅助
+# =============================================================================
+
+
+def _build_history_summary(state: AgentState) -> str:
+    """构建前轮历史摘要（用于终局判定上下文）。
+
+    注：checkpointer 恢复时 Pydantic 模型会序列化为 dict，故需兼容两种访问方式。
+    """
+    if not state["history"]:
+        return ""
+    summaries = []
+    for r in state["history"]:
+        rn = r.round_number if hasattr(r, "round_number") else r.get("round_number", "?")  # type: ignore[union-attr]
+        tb = r.thesis_before if hasattr(r, "thesis_before") else r.get("thesis_before", "?")  # type: ignore[union-attr]
+        ta = r.thesis_after if hasattr(r, "thesis_after") else r.get("thesis_after", "?")  # type: ignore[union-attr]
+        cb = r.continue_debate if hasattr(r, "continue_debate") else r.get("continue_debate", "?")  # type: ignore[union-attr]
+        summaries.append(f"Round {rn}: {tb} -> {ta} (continue: {cb})")
+    return "\n".join(summaries)
+
+
+def _generate_final_summary(
+    model: BaseChatModel,
+    state: AgentState,
+    result: dict,
+    judgment: RefereeJudgment,
+) -> str:
+    """生成辩论终止时的最终总结报告。"""
+    history_json = json.dumps(
+        [r.model_dump() for r in result["history"]],
+        ensure_ascii=False,
+    )
+    summary_system = SystemMessage(content=FINAL_SUMMARY_PROMPT)
+    summary_user = HumanMessage(
+        content=final_summary_prompt(
+            initial_thesis=_get_initial_thesis(state),
+            final_thesis=judgment.new_thesis,
+            history_json=history_json,
+        )
+    )
+    summary_response = invoke_with_retry(
+        model, [summary_system, summary_user], label="FinalSummary"
+    )
+    return extract_content(summary_response).strip()
 
 
 def _get_initial_thesis(state: AgentState) -> str:

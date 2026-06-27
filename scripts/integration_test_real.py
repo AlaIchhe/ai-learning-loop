@@ -18,9 +18,7 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import re
 import sys
 import time
 from pathlib import Path
@@ -38,18 +36,14 @@ from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
+from agents.referee import referee_deliberate_node  # noqa: E402
 from core.model import get_chat_model  # noqa: E402
 from core.prompts import (  # noqa: E402
-    FINAL_SUMMARY_PROMPT,
     OPPONENT_SYSTEM_PROMPT,
     PRESENTER_SYSTEM_PROMPT,
-    REFEREE_SYSTEM_PROMPT,
-    final_summary_prompt,
     opponent_prompt,
     presenter_prompt,
-    referee_prompt,
 )
-from core.schemas import RefereeJudgment, RoundRecord  # noqa: E402
 from core.state import AgentState  # noqa: E402
 
 # =============================================================================
@@ -85,34 +79,6 @@ def _info(detail: str) -> None:
 def _has_api_key() -> bool:
     key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
     return bool(key) and key != "sk-not-configured"
-
-
-def _extract_json(text: str) -> dict | None:
-    """从 LLM 响应中提取 JSON 对象。兼容含 Markdown 代码块的输出。"""
-    # 尝试直接解析
-    try:
-        return json.loads(text.strip())
-    except json.JSONDecodeError:
-        pass
-
-    # 尝试提取 ```json ... ``` 代码块
-    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # 尝试提取 { ... } 块（找最外层大括号）
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end > brace_start:
-        try:
-            return json.loads(text[brace_start:brace_end + 1])
-        except json.JSONDecodeError:
-            pass
-
-    return None
 
 
 def _make_initial_state(thesis: str) -> AgentState:
@@ -238,82 +204,61 @@ def test_presenter_agent() -> bool:
 # =============================================================================
 
 
-def _referee_json_mode(
-    current_thesis: str,
-    draft_thesis: str,
-    confirmed_thesis: str,
-    round_num: int,
-    history_summary: str = "",
-) -> RefereeJudgment:
-    """DeepSeek 兼容的裁判调用 —— 使用 JSON-mode 提示 + 手动解析。
-
-    DeepSeek 不支持 with_structured_output，因此改用常规调用 +
-    显式 JSON 格式指令 + Pydantic 验证的方案。
-    """
-    model = get_chat_model(temperature=0.0)
-
-    system_msg = SystemMessage(content=REFEREE_SYSTEM_PROMPT)
-    user_msg = HumanMessage(content=referee_prompt(
-        current_thesis=current_thesis,
-        draft_thesis=draft_thesis,
-        confirmed_thesis=confirmed_thesis,
-        round_num=round_num,
-        history_summary=history_summary,
-    ))
-
-    response = model.invoke([system_msg, user_msg])
-    content = response.content if isinstance(response.content, str) else str(response.content)
-
-    # 解析 JSON
-    parsed = _extract_json(content.strip())
-    if parsed is None:
-        raise ValueError(f"无法从裁判响应中解析 JSON:\n{content[:500]}")
-
-    # 用 Pydantic 验证
-    judgment = RefereeJudgment(**parsed)
-    judgment.round = round_num
-    return judgment
-
-
 def test_referee_agent() -> bool:
-    """验证 Referee JSON-mode 正确输出结构化判定。"""
+    """验证 Referee 裁判节点（JSON-mode，适配 DeepSeek）正确输出结构化判定。"""
     _header("测试 3: Referee Agent - JSON-mode（真实 API，适配 DeepSeek）")
 
+
+    state: AgentState = {
+        "current_thesis": "AI应受监管。",
+        "round": 1,
+        "status": "referee_deliberating",
+        "messages": [],
+        "history": [],
+        "final_result": "",
+        "_critique": "批判：论题缺乏边界限定。",
+        "_user_response": "同意，应限定在高风险领域。",
+        "_draft_thesis": "AI应在高风险领域（医疗、司法、自动驾驶）受到严格监管，低风险领域可宽松监管。",
+        "_confirmed_thesis": "AI应在涉及生命安全的领域受到严格监管，低风险领域可适度放宽。",
+        "_improvement_hint": "",
+    }
+
     t0 = time.time()
-    judgment = _referee_json_mode(
-        current_thesis="AI应受监管。",
-        draft_thesis="AI应在高风险领域（医疗、司法、自动驾驶）受到严格监管，低风险领域可宽松监管。",
-        confirmed_thesis="AI应在涉及生命安全的领域受到严格监管，低风险领域可适度放宽。",
-        round_num=1,
-    )
+    result = referee_deliberate_node(state, json_mode=True)
     elapsed = time.time() - t0
 
     _info(f"延迟: {elapsed:.2f}s")
-    _info(f"continue_debate: {judgment.continue_debate}")
-    _info(f"new_thesis: {judgment.new_thesis[:100]}...")
-    _info(f"reasoning: {judgment.reasoning[:80]}...")
-    _info(f"improvement_hint: {judgment.improvement_hint[:80]}...")
+
+    # 从历史记录中提取 judgment 信息
+    record = result["history"][-1]
+    continue_debate = record.continue_debate
+    new_thesis = record.thesis_after
+    reasoning = record.referee_reasoning
+
+    _info(f"continue_debate: {continue_debate}")
+    _info(f"new_thesis: {new_thesis[:100]}...")
+    _info(f"reasoning: {reasoning[:80]}...")
+    elapsed = time.time() - t0
+
+    _info(f"延迟: {elapsed:.2f}s")
+    _info(f"continue_debate: {continue_debate}")
+    _info(f"new_thesis: {new_thesis[:100]}...")
+    _info(f"reasoning: {reasoning[:80]}...")
 
     ok = True
-    if not isinstance(judgment.round, int):
-        _fail("round 类型错误")
-        ok = False
-    else:
-        _ok("round 类型正确 ✓")
-
-    if not isinstance(judgment.continue_debate, bool):
+    if not isinstance(continue_debate, bool):
         _fail("continue_debate 类型错误")
         ok = False
     else:
         _ok("continue_debate 类型正确 ✓")
 
-    if not judgment.new_thesis or len(judgment.new_thesis) < 5:
+    if not new_thesis or len(new_thesis) < 5:
         _fail("new_thesis 过短或为空")
         ok = False
     else:
         _ok("new_thesis 有效 ✓")
 
-    if not judgment.reasoning or len(judgment.reasoning) < 5:
+    if not reasoning or len(reasoning) < 5:
         _fail("reasoning 过短或为空")
         ok = False
     else:
@@ -323,98 +268,16 @@ def test_referee_agent() -> bool:
 
 
 # =============================================================================
-# 测试 4: DeepSeek 兼容版 Referee 节点（用于 LangGraph 工作流）
+# Referee 节点适配器（JSON-mode，用于 LangGraph 工作流测试）
 # =============================================================================
 
 
 def _deepseek_referee_node(state: AgentState) -> dict:
-    """DeepSeek 兼容版裁判节点 —— 用 JSON-mode 替代 with_structured_output。
+    """裁判节点适配器：使用生产 referee_deliberate_node 的 JSON-mode。
 
-    与 agents/referee.py 的 referee_deliberate_node 功能相同，但不依赖
-    with_structured_output，改用 _referee_json_mode 调用。
+    与 agents/referee.py 共享同一实现，仅指定 json_mode=True。
     """
-    model = get_chat_model(temperature=0.0)
-
-    # 构建历史摘要
-    history_summary = ""
-    if state["history"]:
-        summaries = []
-        for r in state["history"]:
-            rn = r.round_number if hasattr(r, "round_number") else r.get("round_number", "?")
-            tb = r.thesis_before if hasattr(r, "thesis_before") else r.get("thesis_before", "?")
-            ta = r.thesis_after if hasattr(r, "thesis_after") else r.get("thesis_after", "?")
-            cb = r.continue_debate if hasattr(r, "continue_debate") else r.get("continue_debate", "?")
-            summaries.append(f"Round {rn}: {tb} -> {ta} (continue: {cb})")
-        history_summary = "\n".join(summaries)
-
-    # 使用 JSON-mode 获取判定
-    judgment = _referee_json_mode(
-        current_thesis=state["current_thesis"],
-        draft_thesis=state["_draft_thesis"],
-        confirmed_thesis=state["_confirmed_thesis"],
-        round_num=state["round"],
-        history_summary=history_summary,
-    )
-
-    # 归档本轮
-    round_record = RoundRecord(
-        round_number=state["round"],
-        thesis_before=state["current_thesis"],
-        critique=state["_critique"],
-        user_response=state["_user_response"],
-        draft_thesis=state["_draft_thesis"],
-        confirmed_thesis=state["_confirmed_thesis"],
-        thesis_after=judgment.new_thesis,
-        continue_debate=judgment.continue_debate,
-        referee_reasoning=judgment.reasoning,
-    )
-
-    result: dict = {
-        "history": state["history"] + [round_record],
-    }
-
-    if judgment.continue_debate:
-        result["current_thesis"] = judgment.new_thesis
-        result["status"] = "opponent_computing"
-        result["messages"] = state["messages"]
-    else:
-        result["status"] = "done"
-        # 生成最终总结
-        history_json_str = json.dumps(
-            [r.model_dump() for r in result["history"]],
-            ensure_ascii=False,
-            default=str,
-        )
-        summary_response = model.invoke([
-            SystemMessage(content=FINAL_SUMMARY_PROMPT),
-            HumanMessage(content=final_summary_prompt(
-                initial_thesis=_get_initial_thesis_safe(state),
-                final_thesis=judgment.new_thesis,
-                history_json=history_json_str,
-            )),
-        ])
-        sc = summary_response.content
-        final_result = (sc if isinstance(sc, str) else str(sc)).strip()
-
-        result["messages"] = state["messages"] + [{
-            "role": "referee",
-            "content": final_result,
-            "round": state["round"],
-        }]
-        result["final_result"] = final_result
-
-    return result
-
-
-def _get_initial_thesis_safe(state: AgentState) -> str:
-    """从历史中推断初始论题。"""
-    if state["history"]:
-        first = state["history"][0]
-        return str(
-            first.thesis_before if hasattr(first, "thesis_before")
-            else first.get("thesis_before", state["current_thesis"])
-        )
-    return state["current_thesis"]
+    return referee_deliberate_node(state, json_mode=True)  # type: ignore[return-value]
 
 
 # =============================================================================
