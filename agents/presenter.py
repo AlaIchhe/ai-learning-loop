@@ -14,11 +14,10 @@ Presenter 节点 —— 精确化者（分为 compute + interact 两个节点）
 - 不修改 state 本身，不产生副作用
 """
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.types import interrupt
 
-from core.model import get_chat_model
+from agents._base import invoke_llm, make_message
 from core.prompts import PRESENTER_SYSTEM_PROMPT, presenter_prompt
 from core.state import AgentState
 
@@ -39,31 +38,22 @@ def presenter_compute_node(
         - messages: list[dict]        追加了 presenter 消息的列表
         - status: "awaiting_thesis_confirmation"
     """
-    if model is None:
-        model = get_chat_model(temperature=0.7)
-
-    system_msg = SystemMessage(content=PRESENTER_SYSTEM_PROMPT)
-    user_msg = HumanMessage(
-        content=presenter_prompt(
+    draft = invoke_llm(
+        model=model,
+        temperature=0.7,
+        system_prompt=PRESENTER_SYSTEM_PROMPT,
+        user_prompt=presenter_prompt(
             current_thesis=state["current_thesis"],
             critique=state["_critique"],
             user_response=state["_user_response"],
-        )
+        ),
     )
-
-    response = model.invoke([system_msg, user_msg])
-    content = response.content
-    draft = (content if isinstance(content, str) else str(content)).strip()
-
-    new_msg: dict[str, object] = {
-        "role": "presenter",
-        "content": draft,
-        "round": state["round"],
-    }
 
     return {
         "_draft_thesis": draft,
-        "messages": state["messages"] + [new_msg],
+        "messages": state["messages"] + [
+            make_message("presenter", draft, state["round"])
+        ],
         "status": "awaiting_thesis_confirmation",
     }
 
@@ -88,14 +78,10 @@ def presenter_interact_node(state: AgentState) -> dict:
 
     confirmed = interrupt(draft)
 
-    new_msg: dict[str, object] = {
-        "role": "user",
-        "content": str(confirmed),
-        "round": state["round"],
-    }
-
     return {
         "_confirmed_thesis": str(confirmed),
-        "messages": state["messages"] + [new_msg],
+        "messages": state["messages"] + [
+            make_message("user", str(confirmed), state["round"])
+        ],
         "status": "referee_deliberating",
     }

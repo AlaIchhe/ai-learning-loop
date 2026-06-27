@@ -516,7 +516,7 @@ class TestOpponentEdgeCases:
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
         state = make_state()
-        with patch("agents.opponent.get_chat_model") as mock_get:
+        with patch("agents._base.get_chat_model") as mock_get:
             mock_model = make_mock_model("批判")
             mock_get.return_value = mock_model
             result = opponent_compute_node(state, model=None)
@@ -573,7 +573,7 @@ class TestPresenterEdgeCases:
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
         state = make_state(_critique="c", _user_response="u")
-        with patch("agents.presenter.get_chat_model") as mock_get:
+        with patch("agents._base.get_chat_model") as mock_get:
             mock_model = make_mock_model("草稿")
             mock_get.return_value = mock_model
             result = presenter_compute_node(state, model=None)

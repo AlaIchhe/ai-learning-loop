@@ -14,11 +14,10 @@ Opponent 节点 —— 批判者（分为 compute + interact 两个节点）。
 - 不修改 state 本身，不产生副作用
 """
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.types import interrupt
 
-from core.model import get_chat_model
+from agents._base import invoke_llm, make_message
 from core.prompts import OPPONENT_SYSTEM_PROMPT, opponent_prompt
 from core.state import AgentState
 
@@ -38,30 +37,21 @@ def opponent_compute_node(
         - messages: list[dict]         追加了 opponent 消息的列表
         - status: "awaiting_critique_response"
     """
-    if model is None:
-        model = get_chat_model(temperature=0.7)
-
-    system_msg = SystemMessage(content=OPPONENT_SYSTEM_PROMPT)
-    user_msg = HumanMessage(
-        content=opponent_prompt(
+    critique = invoke_llm(
+        model=model,
+        temperature=0.7,
+        system_prompt=OPPONENT_SYSTEM_PROMPT,
+        user_prompt=opponent_prompt(
             current_thesis=state["current_thesis"],
             improvement_hint=state.get("_improvement_hint", ""),
-        )
+        ),
     )
-
-    response = model.invoke([system_msg, user_msg])
-    content = response.content
-    critique = (content if isinstance(content, str) else str(content)).strip()
-
-    new_msg: dict[str, object] = {
-        "role": "opponent",
-        "content": critique,
-        "round": state["round"],
-    }
 
     return {
         "_critique": critique,
-        "messages": state["messages"] + [new_msg],
+        "messages": state["messages"] + [
+            make_message("opponent", critique, state["round"])
+        ],
         "status": "awaiting_critique_response",
     }
 
@@ -91,14 +81,10 @@ def opponent_interact_node(state: AgentState) -> dict:
     # resume 时返回 Command(resume=...) 传回的用户输入。
     user_response = interrupt(critique)
 
-    new_msg: dict[str, object] = {
-        "role": "user",
-        "content": user_response,
-        "round": state["round"],
-    }
-
     return {
         "_user_response": str(user_response),
-        "messages": state["messages"] + [new_msg],
+        "messages": state["messages"] + [
+            make_message("user", str(user_response), state["round"])
+        ],
         "status": "presenter_computing",
     }

@@ -19,6 +19,7 @@ import json
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from agents._base import extract_content, make_message
 from core.model import get_chat_model
 from core.prompts import (
     FINAL_SUMMARY_PROMPT,
@@ -128,19 +129,12 @@ def referee_deliberate_node(
             )
         )
         summary_response = model.invoke([summary_system, summary_user])
-        summary_content = summary_response.content
-        final_result = (
-            summary_content if isinstance(summary_content, str)
-            else str(summary_content)
-        ).strip()
+        final_result = extract_content(summary_response).strip()
 
         # 将最终总结作为裁判消息写入对话历史
-        new_msg: dict[str, object] = {
-            "role": "referee",
-            "content": final_result,
-            "round": state["round"],
-        }
-        result["messages"] = state["messages"] + [new_msg]
+        result["messages"] = state["messages"] + [
+            make_message("referee", final_result, state["round"])
+        ]
         result["final_result"] = final_result
 
     return result
