@@ -7,13 +7,13 @@ Workflow 图编排的单元测试。
 
 import os
 import tempfile
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from core.schemas import RoundRecord
 from core.state import AgentState
+from tests.helpers import make_initial_state
 from workflow.graph import (
     _next_round_node,
     _route_after_referee,
@@ -21,28 +21,6 @@ from workflow.graph import (
     build_graph,
     export_graph,
 )
-
-# =============================================================================
-# Mock 节点工厂
-# =============================================================================
-
-
-def _make_initial_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgumentType]
-    """构造测试用初始 AgentState。"""
-    defaults: AgentState = {
-        "current_thesis": "测试论题。",
-        "round": 1,
-        "status": "idle",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
-    return cast(AgentState, {**defaults, **overrides})
 
 
 def _mock_opponent_compute(state: AgentState) -> dict:
@@ -140,19 +118,19 @@ class TestStartNode:
     """_start_node 测试。"""
 
     def test_sets_status_to_opponent_computing(self):
-        state = _make_initial_state(status="idle", round=0)
+        state = make_initial_state(status="idle", round=0)
         result = _start_node(state)
 
         assert result["status"] == "opponent_computing"
 
     def test_sets_round_to_one(self):
-        state = _make_initial_state(status="idle", round=0)
+        state = make_initial_state(status="idle", round=0)
         result = _start_node(state)
 
         assert result["round"] == 1
 
     def test_only_touches_round_and_status(self):
-        state = _make_initial_state(status="idle", round=0)
+        state = make_initial_state(status="idle", round=0)
         result = _start_node(state)
 
         assert set(result.keys()) == {"round", "status"}
@@ -167,13 +145,13 @@ class TestNextRoundNode:
     """_next_round_node 测试。"""
 
     def test_increments_round(self):
-        state = _make_initial_state(round=2)
+        state = make_initial_state(round=2)
         result = _next_round_node(state)
 
         assert result["round"] == 3
 
     def test_clears_round_cache(self):
-        state = _make_initial_state(
+        state = make_initial_state(
             _critique="批判",
             _user_response="回应",
             _draft_thesis="草稿",
@@ -187,7 +165,7 @@ class TestNextRoundNode:
         assert result["_confirmed_thesis"] == ""
 
     def test_returns_exactly_six_keys(self):
-        state = _make_initial_state(round=1)
+        state = make_initial_state(round=1)
         result = _next_round_node(state)
 
         assert set(result.keys()) == {
@@ -205,13 +183,13 @@ class TestRouteAfterReferee:
     """_route_after_referee 测试。"""
 
     def test_routes_to_end_when_done(self):
-        state = _make_initial_state(status="done")
+        state = make_initial_state(status="done")
         from langgraph.graph import END
 
         assert _route_after_referee(state) == END
 
     def test_routes_to_next_round_when_opponent_computing(self):
-        state = _make_initial_state(status="opponent_computing")
+        state = make_initial_state(status="opponent_computing")
         assert _route_after_referee(state) == "next_round"
 
     def test_route_never_returns_none(self):
@@ -226,7 +204,7 @@ class TestRouteAfterReferee:
             "done",
         ]
         for s in statuses:
-            state = _make_initial_state(status=s)  # type: ignore[arg-type]
+            state = make_initial_state(status=s)  # type: ignore[arg-type]
             result = _route_after_referee(state)
             assert result is not None, f"status={s} 返回了 None"
             assert result in ("next_round", "__end__"), f"status={s} 返回了 {result}"
@@ -285,7 +263,7 @@ class TestBuildGraph:
             checkpointer=MemorySaver(),
         )
 
-        initial_state = _make_initial_state()
+        initial_state = make_initial_state()
         config = {"configurable": {"thread_id": "test-invoke"}}
 
         # 注意：无 checkpointer 时 interrupt() 会失败。
@@ -326,7 +304,7 @@ class TestBuildGraph:
             checkpointer=MemorySaver(),
         )
 
-        initial_state = _make_initial_state()
+        initial_state = make_initial_state()
         config = {"configurable": {"thread_id": "test-full"}}
         result = graph.invoke(initial_state, config)
 
@@ -375,7 +353,7 @@ class TestRouteEdgeCases:
 
     def test_unknown_status_defaults_to_next_round(self):
         """未知 status 值默认路由到 next_round。"""
-        state = _make_initial_state(status="bogus_value")  # type: ignore[arg-type]
+        state = make_initial_state(status="bogus_value")  # type: ignore[arg-type]
         assert _route_after_referee(state) == "next_round"
 
 
@@ -389,14 +367,14 @@ class TestSchedulingEdgeCases:
 
     def test_start_node_overwrites_non_idle_status(self):
         """start_node 即使 status 不是 idle 也会覆盖。"""
-        state = _make_initial_state(status="done", round=5)
+        state = make_initial_state(status="done", round=5)
         result = _start_node(state)
         assert result["status"] == "opponent_computing"
         assert result["round"] == 1
 
     def test_next_round_preserves_unrelated_fields(self):
         """next_round_node 不修改 current_thesis 等非缓存字段。"""
-        state = _make_initial_state(
+        state = make_initial_state(
             round=2,
             current_thesis="保持不变的论题",
             history=[MagicMock()],

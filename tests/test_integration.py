@@ -8,133 +8,18 @@
 from uuid import uuid4
 
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.types import Command, interrupt
+from langgraph.types import Command
 
-from core.schemas import RoundRecord
-from core.state import AgentState
+from tests.helpers import make_initial_state
+from tests.mock_nodes import (
+    make_mock_referee,
+    mock_opponent_compute,
+    mock_opponent_interact,
+    mock_presenter_compute,
+    mock_presenter_interact,
+)
 from workflow.graph import build_graph
 
-# =============================================================================
-# Mock 节点：模拟完整生命周期（含真实 interrupt()）
-# =============================================================================
-
-
-def _mock_opponent_compute(state: AgentState) -> dict:
-    return {
-        "_critique": f"[Critique R{state['round']}] 论题存在模糊之处",
-        "messages": state["messages"] + [{
-            "role": "opponent",
-            "content": f"[Critique R{state['round']}] 论题存在模糊之处",
-            "round": state["round"],
-        }],
-        "status": "awaiting_critique_response",
-    }
-
-
-def _mock_opponent_interact(state: AgentState) -> dict:
-    """含真实 interrupt() —— 暂停等待用户回应。"""
-    critique = state["_critique"]
-    user_response = interrupt(critique)
-    return {
-        "_user_response": str(user_response),
-        "messages": state["messages"] + [{
-            "role": "user",
-            "content": str(user_response),
-            "round": state["round"],
-        }],
-        "status": "presenter_computing",
-    }
-
-
-def _mock_presenter_compute(state: AgentState) -> dict:
-    return {
-        "_draft_thesis": f"[Draft R{state['round']}] 精确化后的论题",
-        "messages": state["messages"] + [{
-            "role": "presenter",
-            "content": f"[Draft R{state['round']}] 精确化后的论题",
-            "round": state["round"],
-        }],
-        "status": "awaiting_thesis_confirmation",
-    }
-
-
-def _mock_presenter_interact(state: AgentState) -> dict:
-    """含真实 interrupt() —— 暂停等待用户确认。"""
-    draft = state["_draft_thesis"]
-    confirmed = interrupt(draft)
-    return {
-        "_confirmed_thesis": str(confirmed),
-        "messages": state["messages"] + [{
-            "role": "user",
-            "content": str(confirmed),
-            "round": state["round"],
-        }],
-        "status": "referee_deliberating",
-    }
-
-
-def _make_mock_referee(
-    continue_debate: bool = True,
-    new_thesis: str = "拼合后的新论题",
-    reasoning: str = "裁判理由",
-    final_result: str = "终局总结。",
-):
-    """构造 mock 裁判节点。"""
-
-    def _referee(state: AgentState) -> dict:
-        record = RoundRecord(
-            round_number=state["round"],
-            thesis_before=state["current_thesis"],
-            critique=state["_critique"],
-            user_response=state["_user_response"],
-            draft_thesis=state["_draft_thesis"],
-            confirmed_thesis=state["_confirmed_thesis"],
-            thesis_after=new_thesis,
-            continue_debate=continue_debate,
-            referee_reasoning=reasoning,
-        )
-        result: dict = {
-            "messages": state["messages"] + [{
-                "role": "referee",
-                "content": f"[Judgment R{state['round']}] {reasoning}",
-                "round": state["round"],
-            }],
-            "history": state["history"] + [record],
-        }
-        if continue_debate:
-            result["current_thesis"] = new_thesis
-            result["status"] = "opponent_computing"
-        else:
-            result["status"] = "done"
-            result["final_result"] = final_result
-        return result
-
-    return _referee
-
-
-# =============================================================================
-# 初始状态构造
-# =============================================================================
-
-
-def _make_initial_state(thesis: str = "AI 应该被严格监管。") -> AgentState:
-    return {
-        "current_thesis": thesis,
-        "round": 1,
-        "status": "idle",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
-
-
-# =============================================================================
-# 单轮生命周期测试
 # =============================================================================
 
 
@@ -145,17 +30,17 @@ class TestSingleRoundLifecycle:
         """从 idle → done，经过两次 interrupt。"""
         checkpointer = MemorySaver()
         graph = build_graph(
-            opponent_compute_node=_mock_opponent_compute,
-            opponent_interact_node=_mock_opponent_interact,
-            presenter_compute_node=_mock_presenter_compute,
-            presenter_interact_node=_mock_presenter_interact,
-            referee_deliberate_node=_make_mock_referee(continue_debate=False),
+            opponent_compute_node=mock_opponent_compute,
+            opponent_interact_node=mock_opponent_interact,
+            presenter_compute_node=mock_presenter_compute,
+            presenter_interact_node=mock_presenter_interact,
+            referee_deliberate_node=make_mock_referee(continue_debate=False),
             checkpointer=checkpointer,
         )
 
         thread_id = str(uuid4())
         config: dict = {"configurable": {"thread_id": thread_id}}
-        initial_state = _make_initial_state("AI 应受监管。")
+        initial_state = make_initial_state("AI 应受监管。")
 
         # ---- Step 1: invoke → 停在第一个 interrupt (critique) ----
         result = graph.invoke(initial_state, config)
@@ -183,16 +68,16 @@ class TestSingleRoundLifecycle:
         """验证 done 后轮次缓存字段状态（单轮结束无 next_round）。"""
         checkpointer = MemorySaver()
         graph = build_graph(
-            _mock_opponent_compute,
-            _mock_opponent_interact,
-            _mock_presenter_compute,
-            _mock_presenter_interact,
-            _make_mock_referee(continue_debate=False),
+            mock_opponent_compute,
+            mock_opponent_interact,
+            mock_presenter_compute,
+            mock_presenter_interact,
+            make_mock_referee(continue_debate=False),
             checkpointer=checkpointer,
         )
 
         config: dict = {"configurable": {"thread_id": str(uuid4())}}
-        graph.invoke(_make_initial_state(), config)
+        graph.invoke(make_initial_state(), config)
         graph.invoke(Command(resume="回应"), config)
         result = graph.invoke(Command(resume="确认"), config)
 
@@ -213,17 +98,17 @@ class TestMultiRoundLifecycle:
         checkpointer = MemorySaver()
 
         # 第一轮裁判：继续
-        r1_referee = _make_mock_referee(
+        r1_referee = make_mock_referee(
             continue_debate=True,
             new_thesis="AI 应在高风险领域受监管（第1轮拼合）",
             reasoning="论题已有改进，但仍有细化空间。",
         )
 
         graph = build_graph(
-            _mock_opponent_compute,
-            _mock_opponent_interact,
-            _mock_presenter_compute,
-            _mock_presenter_interact,
+            mock_opponent_compute,
+            mock_opponent_interact,
+            mock_presenter_compute,
+            mock_presenter_interact,
             r1_referee,
             checkpointer=checkpointer,
         )
@@ -231,7 +116,7 @@ class TestMultiRoundLifecycle:
         config: dict = {"configurable": {"thread_id": str(uuid4())}}
 
         # Round 1
-        graph.invoke(_make_initial_state("AI 应受监管。"), config)
+        graph.invoke(make_initial_state("AI 应受监管。"), config)
         graph.invoke(Command(resume="R1: 用户回应"), config)
         result = graph.invoke(Command(resume="R1: 确认论题"), config)
 
@@ -244,11 +129,11 @@ class TestMultiRoundLifecycle:
 
         # 替换裁判为结束版并重建图（模拟 R2 裁判判定结束）
         graph2 = build_graph(
-            _mock_opponent_compute,
-            _mock_opponent_interact,
-            _mock_presenter_compute,
-            _mock_presenter_interact,
-            _make_mock_referee(
+            mock_opponent_compute,
+            mock_opponent_interact,
+            mock_presenter_compute,
+            mock_presenter_interact,
+            make_mock_referee(
                 continue_debate=False,
                 new_thesis="AI 应在高风险、高影响领域受严格监管（最终版）",
                 reasoning="论题已足够精确和完善。",
@@ -279,11 +164,11 @@ class TestMultiRoundLifecycle:
         checkpointer = MemorySaver()
 
         graph = build_graph(
-            _mock_opponent_compute,
-            _mock_opponent_interact,
-            _mock_presenter_compute,
-            _mock_presenter_interact,
-            _make_mock_referee(
+            mock_opponent_compute,
+            mock_opponent_interact,
+            mock_presenter_compute,
+            mock_presenter_interact,
+            make_mock_referee(
                 continue_debate=True,
                 new_thesis="演化后的论题-V1",
             ),
@@ -292,7 +177,7 @@ class TestMultiRoundLifecycle:
 
         config: dict = {"configurable": {"thread_id": str(uuid4())}}
 
-        r1 = graph.invoke(_make_initial_state("初始论题"), config)
+        r1 = graph.invoke(make_initial_state("初始论题"), config)
         assert r1["current_thesis"] == "初始论题"
 
         graph.invoke(Command(resume="R1回应"), config)
@@ -315,11 +200,11 @@ class TestInterruptState:
         """验证中断时 state 被正确保存，resume 后可恢复。"""
         checkpointer = MemorySaver()
         graph = build_graph(
-            _mock_opponent_compute,
-            _mock_opponent_interact,
-            _mock_presenter_compute,
-            _mock_presenter_interact,
-            _make_mock_referee(continue_debate=False),
+            mock_opponent_compute,
+            mock_opponent_interact,
+            mock_presenter_compute,
+            mock_presenter_interact,
+            make_mock_referee(continue_debate=False),
             checkpointer=checkpointer,
         )
 
@@ -327,7 +212,7 @@ class TestInterruptState:
         config: dict = {"configurable": {"thread_id": thread_id}}
 
         # Invoke → interrupt at critique
-        graph.invoke(_make_initial_state("持久性测试论题"), config)
+        graph.invoke(make_initial_state("持久性测试论题"), config)
 
         # 通过 get_state 读取 checkpoint
         snapshot = graph.get_state(config)
@@ -341,17 +226,17 @@ class TestInterruptState:
         """resume 后消息数量正确，无重复。"""
         checkpointer = MemorySaver()
         graph = build_graph(
-            _mock_opponent_compute,
-            _mock_opponent_interact,
-            _mock_presenter_compute,
-            _mock_presenter_interact,
-            _make_mock_referee(continue_debate=False),
+            mock_opponent_compute,
+            mock_opponent_interact,
+            mock_presenter_compute,
+            mock_presenter_interact,
+            make_mock_referee(continue_debate=False),
             checkpointer=checkpointer,
         )
 
         config: dict = {"configurable": {"thread_id": str(uuid4())}}
 
-        graph.invoke(_make_initial_state(), config)
+        graph.invoke(make_initial_state(), config)
         # 1 msg (opponent) at interrupt
 
         result = graph.invoke(Command(resume="回应"), config)

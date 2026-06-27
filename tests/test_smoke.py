@@ -9,7 +9,7 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 from core.state import AgentState
-from tests.test_agents import _make_mock_model, _make_state
+from tests.helpers import make_mock_model, make_state
 
 # =============================================================================
 # 模块导入测试
@@ -181,9 +181,9 @@ class TestStateFactorySmoke:
     """AgentState 工厂函数的基本有效性。"""
 
     def test_make_state_produces_all_keys(self):
-        """_make_state() 应包含所有 10 个 AgentState 键。"""
+        """make_state() 应包含所有 10 个 AgentState 键。"""
         from core.state import AgentState
-        state = _make_state()
+        state = make_state()
         required_keys = list(AgentState.__annotations__.keys())
         for key in required_keys:
             assert key in state, f"Missing key: {key}"
@@ -208,7 +208,7 @@ class TestEndToEndAssemblySmoke:
         from workflow.graph import build_graph
 
         # 用 Mock 替换 compute 节点中的 LLM 调用
-        mock_model = _make_mock_model("测试批判内容")
+        mock_model = make_mock_model("测试批判内容")
 
         def _mock_opponent_compute(state, model=None):
             return opponent_compute_node(state, model=mock_model)

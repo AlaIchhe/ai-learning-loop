@@ -8,7 +8,6 @@
 - referee_deliberate_node: 结构化判定（继续/结束）
 """
 
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,43 +17,7 @@ from agents.opponent import opponent_compute_node, opponent_interact_node
 from agents.presenter import presenter_compute_node, presenter_interact_node
 from agents.referee import referee_deliberate_node
 from core.schemas import RefereeJudgment, RoundRecord
-from core.state import AgentState
-
-# =============================================================================
-# 状态构造辅助
-# =============================================================================
-
-
-def _make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgumentType]
-    """构造测试用 AgentState，默认值覆盖所有必要字段。"""
-    defaults: AgentState = {
-        "current_thesis": "人工智能应该被严格监管以确保安全性。",
-        "round": 1,
-        "status": "opponent_computing",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
-    return cast(AgentState, {**defaults, **overrides})
-
-
-# =============================================================================
-# Mock LLM 工厂
-# =============================================================================
-
-
-def _make_mock_model(response_text: str) -> MagicMock:
-    """构造 Mock LLM，.invoke() 返回给定文本。"""
-    mock = MagicMock(spec=ChatOpenAI)
-    mock_response = MagicMock()
-    mock_response.content = response_text
-    mock.invoke.return_value = mock_response
-    return mock
+from tests.helpers import make_mock_model, make_state
 
 
 def _make_mock_referee_model(judgment: RefereeJudgment) -> MagicMock:
@@ -80,8 +43,8 @@ class TestOpponentComputeNode:
     """opponent_compute_node 测试。"""
 
     def test_returns_correct_keys(self):
-        state = _make_state()
-        model = _make_mock_model("论题过于宽泛，缺乏具体边界条件。")
+        state = make_state()
+        model = make_mock_model("论题过于宽泛，缺乏具体边界条件。")
         result = opponent_compute_node(state, model=model)
 
         assert "_critique" in result
@@ -89,9 +52,9 @@ class TestOpponentComputeNode:
         assert "status" in result
 
     def test_critique_is_non_empty_str(self):
-        state = _make_state()
+        state = make_state()
         critique_text = "该论题存在三个主要漏洞：1."
-        model = _make_mock_model(critique_text)
+        model = make_mock_model(critique_text)
         result = opponent_compute_node(state, model=model)
 
         assert isinstance(result["_critique"], str)
@@ -99,15 +62,15 @@ class TestOpponentComputeNode:
         assert result["_critique"] == critique_text
 
     def test_status_transitions_to_awaiting_response(self):
-        state = _make_state(status="opponent_computing")
-        model = _make_mock_model("批判内容")
+        state = make_state(status="opponent_computing")
+        model = make_mock_model("批判内容")
         result = opponent_compute_node(state, model=model)
 
         assert result["status"] == "awaiting_critique_response"
 
     def test_appends_message_with_correct_role(self):
-        state = _make_state(messages=[], round=2)
-        model = _make_mock_model("批判")
+        state = make_state(messages=[], round=2)
+        model = make_mock_model("批判")
         result = opponent_compute_node(state, model=model)
 
         msgs = result["messages"]
@@ -117,10 +80,10 @@ class TestOpponentComputeNode:
         assert msgs[0]["round"] == 2
 
     def test_does_not_mutate_original_state(self):
-        original = _make_state(
+        original = make_state(
             current_thesis="原始论题", messages=[], status="opponent_computing"
         )
-        model = _make_mock_model("批判")
+        model = make_mock_model("批判")
         opponent_compute_node(original, model=model)
 
         assert original["current_thesis"] == "原始论题"
@@ -128,8 +91,8 @@ class TestOpponentComputeNode:
         assert original["status"] == "opponent_computing"
 
     def test_passes_current_thesis_to_llm(self):
-        state = _make_state(current_thesis="测试论题：AI 必须被监管")
-        model = _make_mock_model("批判")
+        state = make_state(current_thesis="测试论题：AI 必须被监管")
+        model = make_mock_model("批判")
 
         opponent_compute_node(state, model=model)
 
@@ -147,7 +110,7 @@ class TestOpponentInteractNode:
     """opponent_interact_node 测试。"""
 
     def test_interrupt_called_with_critique(self):
-        state = _make_state(
+        state = make_state(
             _critique="你的论题存在逻辑漏洞…",
             status="awaiting_critique_response",
         )
@@ -160,7 +123,7 @@ class TestOpponentInteractNode:
         assert result["_user_response"] == "我承认论题需要更精确的边界条件。"
 
     def test_status_transitions_to_presenter_computing(self):
-        state = _make_state(
+        state = make_state(
             _critique="批判内容",
             status="awaiting_critique_response",
         )
@@ -172,7 +135,7 @@ class TestOpponentInteractNode:
         assert result["status"] == "presenter_computing"
 
     def test_appends_user_message(self):
-        state = _make_state(
+        state = make_state(
             messages=[{"role": "opponent", "content": "批判", "round": 1}],
             _critique="批判",
             round=1,
@@ -199,11 +162,11 @@ class TestPresenterComputeNode:
     """presenter_compute_node 测试。"""
 
     def test_returns_correct_keys(self):
-        state = _make_state(
+        state = make_state(
             _critique="批判",
             _user_response="用户回应",
         )
-        model = _make_mock_model("精确化后的论题：AI 应在特定领域受到监管。")
+        model = make_mock_model("精确化后的论题：AI 应在特定领域受到监管。")
         result = presenter_compute_node(state, model=model)
 
         assert "_draft_thesis" in result
@@ -211,12 +174,12 @@ class TestPresenterComputeNode:
         assert "status" in result
 
     def test_draft_is_non_empty_str(self):
-        state = _make_state(
+        state = make_state(
             _critique="批判",
             _user_response="用户回应",
         )
         draft_text = "精确化：AI 监管应区分高风险与低风险应用场景。"
-        model = _make_mock_model(draft_text)
+        model = make_mock_model(draft_text)
         result = presenter_compute_node(state, model=model)
 
         assert isinstance(result["_draft_thesis"], str)
@@ -224,20 +187,20 @@ class TestPresenterComputeNode:
         assert result["_draft_thesis"] == draft_text
 
     def test_status_transitions_to_awaiting_confirmation(self):
-        state = _make_state(_critique="c", _user_response="u")
-        model = _make_mock_model("精确化论题")
+        state = make_state(_critique="c", _user_response="u")
+        model = make_mock_model("精确化论题")
         result = presenter_compute_node(state, model=model)
 
         assert result["status"] == "awaiting_thesis_confirmation"
 
     def test_appends_message_with_correct_role(self):
-        state = _make_state(
+        state = make_state(
             messages=[],
             _critique="批判",
             _user_response="用户回应",
             round=1,
         )
-        model = _make_mock_model("精确化论题")
+        model = make_mock_model("精确化论题")
         result = presenter_compute_node(state, model=model)
 
         msgs = result["messages"]
@@ -247,22 +210,22 @@ class TestPresenterComputeNode:
         assert msgs[0]["round"] == 1
 
     def test_does_not_mutate_original_state(self):
-        original = _make_state(
+        original = make_state(
             _critique="批判", _user_response="用户回应", messages=[]
         )
-        model = _make_mock_model("精确化论题")
+        model = make_mock_model("精确化论题")
         presenter_compute_node(original, model=model)
 
         assert original["_draft_thesis"] == ""
         assert original["messages"] == []
 
     def test_passes_full_context_to_llm(self):
-        state = _make_state(
+        state = make_state(
             current_thesis="原始论题",
             _critique="论题过于宽泛",
             _user_response="应限定在高风险 AI 领域",
         )
-        model = _make_mock_model("精确化论题")
+        model = make_mock_model("精确化论题")
 
         presenter_compute_node(state, model=model)
 
@@ -282,7 +245,7 @@ class TestPresenterInteractNode:
     """presenter_interact_node 测试。"""
 
     def test_interrupt_called_with_draft(self):
-        state = _make_state(
+        state = make_state(
             _draft_thesis="精确化论题：AI 应受监管。",
             status="awaiting_thesis_confirmation",
         )
@@ -294,7 +257,7 @@ class TestPresenterInteractNode:
         mock_interrupt.assert_called_once_with("精确化论题：AI 应受监管。")
 
     def test_status_transitions_to_referee_deliberating(self):
-        state = _make_state(
+        state = make_state(
             _draft_thesis="草稿",
             status="awaiting_thesis_confirmation",
         )
@@ -307,7 +270,7 @@ class TestPresenterInteractNode:
 
     def test_user_can_edit_thesis(self):
         """用户可以编辑草稿后再确认。"""
-        state = _make_state(
+        state = make_state(
             _draft_thesis="原始草稿",
             status="awaiting_thesis_confirmation",
         )
@@ -319,7 +282,7 @@ class TestPresenterInteractNode:
         assert result["_confirmed_thesis"] == "经过编辑的新论题"
 
     def test_appends_user_message(self):
-        state = _make_state(
+        state = make_state(
             messages=[{"role": "presenter", "content": "草稿", "round": 1}],
             _draft_thesis="草稿",
             round=1,
@@ -355,7 +318,7 @@ class TestRefereeDeliberateNode:
         return RefereeJudgment(**{**defaults, **overrides})
 
     def test_returns_correct_keys(self):
-        state = _make_state(
+        state = make_state(
             _critique="批判",
             _user_response="用户回应",
             _draft_thesis="草稿论题",
@@ -370,7 +333,7 @@ class TestRefereeDeliberateNode:
         assert "status" in result
 
     def test_status_continue_when_not_done(self):
-        state = _make_state(
+        state = make_state(
             _critique="批判", _user_response="回应",
             _draft_thesis="草稿", _confirmed_thesis="确认",
         )
@@ -385,7 +348,7 @@ class TestRefereeDeliberateNode:
         assert len(result["messages"]) == len(state["messages"])
 
     def test_status_done_when_referee_ends(self):
-        state = _make_state(
+        state = make_state(
             _critique="批判", _user_response="回应",
             _draft_thesis="草稿", _confirmed_thesis="确认",
         )
@@ -402,7 +365,7 @@ class TestRefereeDeliberateNode:
 
     def test_no_referee_message_when_continue(self):
         """正常轮次（continue_debate=True）：裁判不产生对用户可见的消息。"""
-        state = _make_state(
+        state = make_state(
             messages=[], _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
@@ -415,7 +378,7 @@ class TestRefereeDeliberateNode:
 
     def test_appends_referee_message_when_done(self):
         """辩论终止（continue_debate=False）：裁判输出最终总结作为消息。"""
-        state = _make_state(
+        state = make_state(
             messages=[], _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
@@ -429,7 +392,7 @@ class TestRefereeDeliberateNode:
         assert len(msgs[0]["content"]) > 0  # 最终总结作为消息内容
 
     def test_appends_round_record_to_history(self):
-        state = _make_state(
+        state = make_state(
             history=[], _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
             current_thesis="进入轮次的论题",
@@ -460,7 +423,7 @@ class TestRefereeDeliberateNode:
             confirmed_thesis="旧确认", thesis_after="旧拼合",
             continue_debate=True, referee_reasoning="旧理由",
         )
-        state = _make_state(
+        state = make_state(
             history=[existing], round=2,
             _critique="c2", _user_response="u2",
             _draft_thesis="d2", _confirmed_thesis="cf2",
@@ -476,7 +439,7 @@ class TestRefereeDeliberateNode:
         assert history[1].round_number == 2
 
     def test_does_not_mutate_original_state(self):
-        original = _make_state(
+        original = make_state(
             history=[], _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
@@ -488,7 +451,7 @@ class TestRefereeDeliberateNode:
         assert original["current_thesis"] == "人工智能应该被严格监管以确保安全性。"
 
     def test_judgment_is_referee_judgment_instance(self):
-        state = _make_state(
+        state = make_state(
             _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
@@ -510,7 +473,7 @@ class TestInterruptIdempotency:
     """验证 interact 节点 resume 时的幂等行为。"""
 
     def test_opponent_interact_resume_does_not_duplicate_messages(self):
-        state = _make_state(
+        state = make_state(
             messages=[{"role": "opponent", "content": "批判", "round": 1}],
             _critique="批判",
             round=1,
@@ -526,7 +489,7 @@ class TestInterruptIdempotency:
         assert result["messages"][1]["role"] == "user"
 
     def test_presenter_interact_resume_does_not_duplicate_messages(self):
-        state = _make_state(
+        state = make_state(
             messages=[{"role": "presenter", "content": "草稿", "round": 1}],
             _draft_thesis="草稿",
             round=1,
@@ -552,9 +515,9 @@ class TestOpponentEdgeCases:
 
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
-        state = _make_state()
+        state = make_state()
         with patch("agents.opponent.get_chat_model") as mock_get:
-            mock_model = _make_mock_model("批判")
+            mock_model = make_mock_model("批判")
             mock_get.return_value = mock_model
             result = opponent_compute_node(state, model=None)
         assert "_critique" in result
@@ -562,22 +525,22 @@ class TestOpponentEdgeCases:
 
     def test_empty_llm_response_handled(self):
         """LLM 返回空字符串时不崩溃。"""
-        state = _make_state()
-        model = _make_mock_model("")
+        state = make_state()
+        model = make_mock_model("")
         result = opponent_compute_node(state, model=model)
         assert isinstance(result["_critique"], str)
         assert result["_critique"] == ""
 
     def test_whitespace_only_llm_response(self):
         """LLM 返回仅空格时，strip 后为空字符串。"""
-        state = _make_state()
-        model = _make_mock_model("   \n  ")
+        state = make_state()
+        model = make_mock_model("   \n  ")
         result = opponent_compute_node(state, model=model)
         assert result["_critique"] == ""
 
     def test_non_string_llm_content(self):
         """LLM 返回非字符串 content（如 list）时 str() 降级。"""
-        state = _make_state()
+        state = make_state()
         model = MagicMock(spec=ChatOpenAI)
         response = MagicMock()
         response.content = ["意外", "的", "列表"]
@@ -592,7 +555,7 @@ class TestOpponentInteractEdgeCases:
 
     def test_missing_critique_raises_key_error(self):
         """state 缺少 _critique 时应抛出 KeyError。"""
-        state = _make_state()
+        state = make_state()
         # 删除 _critique 键来模拟 state 损坏
         broken: dict = {k: v for k, v in state.items() if k != "_critique"}
         with pytest.raises(KeyError):
@@ -609,9 +572,9 @@ class TestPresenterEdgeCases:
 
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
-        state = _make_state(_critique="c", _user_response="u")
+        state = make_state(_critique="c", _user_response="u")
         with patch("agents.presenter.get_chat_model") as mock_get:
-            mock_model = _make_mock_model("草稿")
+            mock_model = make_mock_model("草稿")
             mock_get.return_value = mock_model
             result = presenter_compute_node(state, model=None)
         assert "_draft_thesis" in result
@@ -619,15 +582,15 @@ class TestPresenterEdgeCases:
 
     def test_empty_llm_response_handled(self):
         """LLM 返回空字符串时不崩溃。"""
-        state = _make_state(_critique="c", _user_response="u")
-        model = _make_mock_model("")
+        state = make_state(_critique="c", _user_response="u")
+        model = make_mock_model("")
         result = presenter_compute_node(state, model=model)
         assert isinstance(result["_draft_thesis"], str)
         assert result["_draft_thesis"] == ""
 
     def test_non_string_llm_content(self):
         """LLM 返回非字符串 content 时 str() 降级。"""
-        state = _make_state(_critique="c", _user_response="u")
+        state = make_state(_critique="c", _user_response="u")
         model = MagicMock(spec=ChatOpenAI)
         response = MagicMock()
         response.content = ["精", "确", "化"]
@@ -657,7 +620,7 @@ class TestRefereeEdgeCases:
 
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
-        state = _make_state(
+        state = make_state(
             _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
@@ -678,7 +641,7 @@ class TestRefereeEdgeCases:
 
     def test_dict_format_history_from_checkpoint(self):
         """checkpoint 恢复后 history 元素为 dict（非 Pydantic）时兼容。"""
-        state = _make_state(
+        state = make_state(
             history=[{
                 "round_number": 1,
                 "thesis_before": "旧论题",
@@ -707,7 +670,7 @@ class TestRefereeEdgeCases:
         """_get_initial_thesis 在 history[0] 为 dict 时正确回退。"""
         from agents.referee import _get_initial_thesis
 
-        state = _make_state(
+        state = make_state(
             history=[{
                 "round_number": 1,
                 "thesis_before": "初始论题（dict格式）",
@@ -725,13 +688,13 @@ class TestRefereeEdgeCases:
         """_get_initial_thesis 在 history 为空时返回 current_thesis。"""
         from agents.referee import _get_initial_thesis
 
-        state = _make_state(history=[], current_thesis="唯一论题")
+        state = make_state(history=[], current_thesis="唯一论题")
         result = _get_initial_thesis(state)
         assert result == "唯一论题"
 
     def test_large_round_number(self):
         """大轮次编号（9999）不导致崩溃。"""
-        state = _make_state(
+        state = make_state(
             round=9999,
             _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",

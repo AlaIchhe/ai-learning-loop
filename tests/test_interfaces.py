@@ -9,7 +9,6 @@
 - Prompt 模板注入
 """
 
-from typing import cast
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -31,37 +30,8 @@ from core.prompts import (
 )
 from core.schemas import DebateResult, Message, RefereeJudgment, RoundRecord
 from core.state import AgentState
+from tests.helpers import make_mock_model, make_state
 from workflow.graph import _route_after_referee, build_graph
-
-# =============================================================================
-# 辅助函数
-# =============================================================================
-
-
-def _make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgumentType]
-    defaults: AgentState = {
-        "current_thesis": "测试论题",
-        "round": 1,
-        "status": "opponent_computing",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
-    return cast(AgentState, {**defaults, **overrides})
-
-
-def _make_mock_model(response_text: str) -> MagicMock:
-    mock = MagicMock()
-    mock_response = MagicMock()
-    mock_response.content = response_text
-    mock.invoke.return_value = mock_response
-    return mock
-
 
 # =============================================================================
 # Prompt 模板测试
@@ -111,14 +81,14 @@ class TestNodeOutputInterface:
     """验证节点返回的 dict key 与 AgentState 兼容。"""
 
     def test_opponent_compute_output_keys_match_state(self):
-        state = _make_state()
-        model = _make_mock_model("批判")
+        state = make_state()
+        model = make_mock_model("批判")
         result = opponent_compute_node(state, model=model)
         for key in result:
             assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
     def test_opponent_interact_output_keys_match_state(self):
-        state = _make_state(
+        state = make_state(
             _critique="c", status="awaiting_critique_response",
         )
         # Mock interrupt to avoid GraphInterrupt
@@ -129,14 +99,14 @@ class TestNodeOutputInterface:
             assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
     def test_presenter_compute_output_keys_match_state(self):
-        state = _make_state(_critique="c", _user_response="u")
-        model = _make_mock_model("草稿")
+        state = make_state(_critique="c", _user_response="u")
+        model = make_mock_model("草稿")
         result = presenter_compute_node(state, model=model)
         for key in result:
             assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
     def test_presenter_interact_output_keys_match_state(self):
-        state = _make_state(
+        state = make_state(
             _draft_thesis="d", status="awaiting_thesis_confirmation",
         )
         with patch("agents.presenter.interrupt") as mock_int:
@@ -146,7 +116,7 @@ class TestNodeOutputInterface:
             assert key in AgentState.__annotations__, f"Unknown key: {key}"
 
     def test_referee_output_keys_match_state(self):
-        state = _make_state(
+        state = make_state(
             _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
@@ -167,8 +137,8 @@ class TestNodeOutputInterface:
     def test_state_merge_is_additive(self):
         """多个节点的部分更新合并后 state 完整。"""
         # 模拟一轮完整流程的返回值合并
-        state = _make_state(messages=[], history=[])
-        model = _make_mock_model("批判")
+        state = make_state(messages=[], history=[])
+        model = make_mock_model("批判")
         r1 = opponent_compute_node(state, model=model)  # 不修改 state
         assert state["messages"] == []  # 原始未变
 
@@ -180,11 +150,11 @@ class TestNodeOutputInterface:
 
     def test_all_nodes_produce_same_message_structure(self):
         """所有节点产生的消息都包含 role/content/round。"""
-        state = _make_state(
+        state = make_state(
             _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
-        model = _make_mock_model("测试内容")
+        model = make_mock_model("测试内容")
 
         # 模拟 referee 的 structured_output
         mock_ref_model = MagicMock()
@@ -338,12 +308,12 @@ class TestCheckpointInterface:
 
         thread_id = str(uuid4())
         config: dict = {"configurable": {"thread_id": thread_id}}
-        graph.invoke(_make_state(), config)
+        graph.invoke(make_state(), config)
 
         # 读取 checkpoint 快照
         snapshot = graph.get_state(config)
         saved = snapshot.values
-        assert saved["current_thesis"] == "测试论题"
+        assert saved["current_thesis"] == "人工智能应该被严格监管以确保安全性。"
         assert saved["round"] == 1
         assert saved["_critique"] == "批判"
         assert len(saved["messages"]) == 1
@@ -413,7 +383,7 @@ class TestCheckpointInterface:
         )
 
         config: dict = {"configurable": {"thread_id": str(uuid4())}}
-        state = _make_state(current_thesis="持久性测试论题")
+        state = make_state(current_thesis="持久性测试论题")
         graph.invoke(state, config)
 
         snapshot = graph.get_state(config)
@@ -438,7 +408,7 @@ class TestRoutingInterface:
     def test_route_done_to_end(self):
         from langgraph.graph import END
 
-        state = _make_state(status="done")
+        state = make_state(status="done")
         assert _route_after_referee(state) == END
 
     def test_route_other_to_next_round(self):
@@ -451,7 +421,7 @@ class TestRoutingInterface:
             "idle",
         ]
         for s in non_done_statuses:
-            state = _make_state(status=s)  # type: ignore[arg-type]
+            state = make_state(status=s)  # type: ignore[arg-type]
             assert _route_after_referee(state) == "next_round", f"Failed for {s}"
 
     def test_route_never_returns_ambiguous(self):
@@ -463,7 +433,7 @@ class TestRoutingInterface:
         from langgraph.graph import END
 
         for s in all_statuses:
-            state = _make_state(status=s)  # type: ignore[arg-type]
+            state = make_state(status=s)  # type: ignore[arg-type]
             result = _route_after_referee(state)
             assert result in (END, "next_round"), f"{s} → {result}"
 
@@ -531,7 +501,7 @@ class TestStateEdgeCases:
 
     def test_invalid_status_defaults_to_next_round(self):
         """未知 status 值默认路由到 'next_round'。"""
-        state = _make_state(status="totally_invalid_status")  # type: ignore[arg-type]
+        state = make_state(status="totally_invalid_status")  # type: ignore[arg-type]
         assert _route_after_referee(state) == "next_round"
 
 
