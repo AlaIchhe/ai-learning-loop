@@ -34,12 +34,16 @@ def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
     """
     model_name = os.getenv("LLM_MODEL", "gpt-4o")
     base_url = os.getenv("LLM_BASE_URL", None)
-    api_key = os.getenv("LLM_API_KEY", None)
+    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or None
 
-    kwargs = {"model": model_name, "temperature": temperature}
+    kwargs: dict = {"model": model_name, "temperature": temperature}
     if base_url:
         kwargs["base_url"] = base_url
     if api_key:
         kwargs["api_key"] = api_key
+    else:
+        # 未配置任何 API Key 时用占位符，避免 ChatOpenAI.__init__ 立即抛异常。
+        # 真正调用 LLM 时才会因鉴权失败而报错。
+        kwargs["api_key"] = "sk-not-configured"
 
     return ChatOpenAI(**kwargs)
