@@ -105,9 +105,14 @@ def _on_start_debate(topic: str, max_rounds: int) -> None:
         st.error("请输入 API Key")
         return
 
-    # 初始化 LangGraph
+    # 初始化 LangGraph（checkpointer 必须参与编译，interrupt 才能恢复）
     checkpointer = MemorySaver()
-    graph = _build_configured_graph(checkpointer)
+    graph = build_graph(
+        presenter_node=presenter_node,
+        opponent_node=opponent_node,
+        referee_node=referee_node,
+        checkpointer=checkpointer,
+    )
     thread_id = str(uuid4())
 
     st.session_state["debate_started"] = True
@@ -159,29 +164,6 @@ def _on_continue() -> None:
     # 传入 None 表示从当前 checkpoint 恢复
     graph.invoke(None, config)
     st.rerun()
-
-
-# =============================================================================
-# Graph 构建（纯组装，不包含业务逻辑）
-# =============================================================================
-
-
-@st.cache_resource
-def _build_configured_graph(checkpointer: MemorySaver):
-    """构建并缓存 graph。
-
-    使用 st.cache_resource 确保同一 checkpointer 实例下
-    graph 不会被重复编译。
-    """
-    from langgraph.checkpoint.memory import MemorySaver as MS
-
-    # st.cache_resource 的参数必须可哈希，MemorySaver 不可哈希，
-    # 这里每次重建，但代价很低（纯编排，无 LLM）。
-    return build_graph(
-        presenter_node=presenter_node,
-        opponent_node=opponent_node,
-        referee_node=referee_node,
-    )
 
 
 # =============================================================================

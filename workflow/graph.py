@@ -75,7 +75,8 @@ def build_graph(
     opponent_node,
     referee_node,
     interrupt_before: list[str] | None = None,
-) -> StateGraph:
+    checkpointer=None,
+):
     """组装 LangGraph 状态图。
 
     所有 LLM 节点以依赖注入方式传入，图本身只负责编排。
@@ -88,9 +89,12 @@ def build_graph(
         interrupt_before: 需要暂停的节点列表。
                           默认在 presenter / opponent / referee 前全部暂停，
                           以便 UI 层逐步展示辩论过程。
+        checkpointer:   LangGraph checkpointer 实例（如 MemorySaver）。
+                        必须传入才能支持 interrupt_before 暂停/恢复和 get_state()。
+                        未传入时，图仍可运行但中断和状态查询不可用。
 
     Returns:
-        编译后的 LangGraph StateGraph，可直接在 Streamlit 等 UI 中调用。
+        编译后的 CompiledStateGraph。
     """
     if interrupt_before is None:
         interrupt_before = ["presenter", "opponent", "referee"]
@@ -124,8 +128,11 @@ def build_graph(
     # 下一轮 → 陈述者（形成循环）
     workflow.add_edge("next_round", "presenter")
 
-    # 编译图，配置断点
-    return workflow.compile(interrupt_before=interrupt_before)
+    # 编译图，配置断点和 checkpointer
+    return workflow.compile(
+        interrupt_before=interrupt_before,
+        checkpointer=checkpointer,
+    )
 
 
 # =============================================================================
