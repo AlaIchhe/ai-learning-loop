@@ -20,6 +20,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from core.state import AgentState
 from core.schemas import RefereeJudgment, RoundRecord
 from core.prompts import REFEREE_SYSTEM_PROMPT, referee_prompt
+from core.model import get_chat_model
 
 
 def referee_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
@@ -31,7 +32,8 @@ def referee_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
     Args:
         state: 全局 AgentState，至少需包含 topic / round / max_rounds /
                presenter_argument / opponent_rebuttal / messages / history。
-        model: 可注入的 LLM 实例，默认使用 gpt-4o。测试时传入 Mock 即可。
+        model: 可注入的 LLM 实例。默认通过 get_chat_model() 从环境变量读取
+               配置（支持 OpenAI / DeepSeek / 其他兼容供应商）。测试时传入 Mock。
 
     Returns:
         dict，包含以下键：
@@ -41,7 +43,7 @@ def referee_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
         - status: "presenting" | "done"      下一轮或结束
     """
     if model is None:
-        model = ChatOpenAI(model="gpt-4o", temperature=0.0)
+        model = get_chat_model(temperature=0.0)
 
     # 结构化输出：绑定 RefereeJudgment schema
     structured_model = model.with_structured_output(RefereeJudgment)

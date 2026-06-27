@@ -17,6 +17,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from core.state import AgentState
 from core.prompts import OPPONENT_SYSTEM_PROMPT, opponent_prompt
+from core.model import get_chat_model
 
 
 def opponent_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
@@ -24,7 +25,8 @@ def opponent_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
 
     Args:
         state: 全局 AgentState，至少需包含 topic / presenter_argument / messages / round。
-        model: 可注入的 LLM 实例，默认使用 gpt-4o。测试时传入 Mock 即可。
+        model: 可注入的 LLM 实例。默认通过 get_chat_model() 从环境变量读取
+               配置（支持 OpenAI / DeepSeek / 其他兼容供应商）。测试时传入 Mock。
 
     Returns:
         dict，包含以下键：
@@ -33,7 +35,7 @@ def opponent_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
         - status: "judging"       状态转移至裁判阶段
     """
     if model is None:
-        model = ChatOpenAI(model="gpt-4o", temperature=0.7)
+        model = get_chat_model(temperature=0.7)
 
     # 组装消息
     system_msg = SystemMessage(content=OPPONENT_SYSTEM_PROMPT)
