@@ -14,7 +14,7 @@ Opponent 节点 —— 批判者（分为 compute + interact 两个节点）。
 - 不修改 state 本身，不产生副作用
 """
 
-from langchain_openai import ChatOpenAI
+from langchain_core.language_models import BaseChatModel
 from langgraph.types import interrupt
 
 from agents._base import invoke_llm, make_message
@@ -23,7 +23,7 @@ from core.state import AgentState
 
 
 def opponent_compute_node(
-    state: AgentState, model: ChatOpenAI | None = None
+    state: AgentState, model: BaseChatModel | None = None
 ) -> dict:
     """批判者计算节点：对 current_thesis 生成批判。
 

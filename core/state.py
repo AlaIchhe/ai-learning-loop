@@ -16,34 +16,6 @@ from typing import Literal, TypedDict
 from core.schemas import RoundRecord
 
 
-class AgentStateOverrides(TypedDict, total=False):
-    """AgentState 的偏量覆盖类型，用于结构化构造 state 的辅助函数。
-
-    所有字段均为 NotRequired（total=False），调用方可仅传入需覆盖的键。
-    配合 typing.Unpack 用于函数的 **kwargs 签名。
-    """
-
-    current_thesis: str
-    round: int
-    status: Literal[
-        "idle",
-        "opponent_computing",
-        "awaiting_critique_response",
-        "presenter_computing",
-        "awaiting_thesis_confirmation",
-        "referee_deliberating",
-        "done",
-    ]
-    messages: list[dict[str, object]]
-    history: list[RoundRecord]
-    final_result: str
-    _critique: str
-    _user_response: str
-    _draft_thesis: str
-    _confirmed_thesis: str
-    _improvement_hint: str
-
-
 class AgentState(TypedDict):
     """多智能体论题演化系统的全局状态。
 

@@ -8,29 +8,18 @@ Pydantic 结构化输出模型 —— 系统的数据契约。
 """
 
 from datetime import datetime
-from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # =============================================================================
-# 消息模型
+# 基类
 # =============================================================================
 
 
-class Message(BaseModel):
-    """单条会话消息。"""
+class _StrictModel(BaseModel):
+    """项目基类：禁止额外字段，所有模型统一继承。"""
 
-    role: Literal["system", "presenter", "opponent", "referee", "user"]
-    """消息发送方角色。user 用于标记用户在中继点输入的内容。"""
-
-    content: str = Field(min_length=1)
-    """消息正文，不可为空。"""
-
-    round: int = Field(ge=1)
-    """所属辩论轮次。"""
-
-    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-    """消息时间戳（ISO 8601 格式），默认创建时自动生成。"""
+    model_config = ConfigDict(extra="forbid")
 
 
 # =============================================================================
@@ -38,14 +27,15 @@ class Message(BaseModel):
 # =============================================================================
 
 
-class RefereeJudgment(BaseModel):
+class RefereeJudgment(_StrictModel):
     """裁判对一轮论题演化的结构化判定。
 
     这是系统的核心契约 —— agents/referee.py 的 LLM 调用
     必须返回符合此 schema 的 JSON 输出。
-    """
 
-    round: int = Field(ge=1, description="判定对应的轮次编号")
+    注意：round 字段由代码覆盖（judgment.round = state["round"]），
+    LLM 不应输出该字段。
+    """
 
     continue_debate: bool = Field(
         description="是否继续下一轮辩论。True = 论题仍需打磨，False = 论题已足够完善。"
@@ -65,11 +55,11 @@ class RefereeJudgment(BaseModel):
 
 
 # =============================================================================
-# 轮次 & 结果归档
+# 轮次归档
 # =============================================================================
 
 
-class RoundRecord(BaseModel):
+class RoundRecord(_StrictModel):
     """单轮论题演化的完整归档（存入 history 列表）。"""
 
     round_number: int = Field(ge=1)
@@ -85,14 +75,3 @@ class RoundRecord(BaseModel):
     referee_reasoning: str = Field(min_length=1, description="裁判的判定理由")
 
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
-
-
-class DebateResult(BaseModel):
-    """整场辩论的最终汇总。"""
-
-    initial_thesis: str = Field(min_length=1, description="用户最初提出的论题")
-    final_thesis: str = Field(min_length=1, description="辩论结束时的最终论题")
-    total_rounds: int = Field(ge=0, description="总轮次数")
-
-    rounds: list[RoundRecord] = Field(default_factory=list)
-    summary: str = Field(min_length=1, description="最终总结报告")

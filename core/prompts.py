@@ -167,14 +167,11 @@ REFEREE_SYSTEM_PROMPT = """\
 - 只有在辩论终止时，才会生成对用户可见的总结报告（由另一个节点完成）。
 
 ## 输出格式
-严格输出 JSON，键名为英文，不含 Markdown 代码块标记：
-{
-  "round": <整数>,
-  "continue_debate": <布尔值>,
-  "new_thesis": "<拼合后的完整论题文本（原始核心 + 新认知层次，有机融合为一段话）>",
-  "reasoning": "<本轮添加了什么新认知层次>",
-  "improvement_hint": "<下一轮批判者应攻击的方向>"
-}
+通过 with_structured_output 输出符合 RefereeJudgment schema 的 JSON。你需要输出以下字段：
+- continue_debate: 布尔值，是否继续下一轮
+- new_thesis: 拼合后的完整论题文本（原始核心 + 新认知层次，有机融合为一段话）
+- reasoning: 本轮添加了什么新认知层次
+- improvement_hint: 下一轮批判者应攻击的方向
 """
 
 

@@ -28,7 +28,7 @@ from core.prompts import (
     presenter_prompt,
     referee_prompt,
 )
-from core.schemas import DebateResult, Message, RefereeJudgment, RoundRecord
+from core.schemas import RefereeJudgment, RoundRecord
 from core.state import AgentState
 from tests.helpers import make_mock_model, make_state
 from workflow.graph import _route_after_referee, build_graph
@@ -124,7 +124,7 @@ class TestNodeOutputInterface:
         mock_model = MagicMock()
         structured_mock = MagicMock()
         structured_mock.invoke.return_value = RefereeJudgment(
-            round=1, continue_debate=True,
+            continue_debate=True,
             new_thesis="新论题", reasoning="理由",
         )
         mock_model.with_structured_output.return_value = structured_mock
@@ -160,7 +160,7 @@ class TestNodeOutputInterface:
         mock_ref_model = MagicMock()
         structured_mock = MagicMock()
         structured_mock.invoke.return_value = RefereeJudgment(
-            round=1, continue_debate=True,
+            continue_debate=True,
             new_thesis="新论题", reasoning="理由",
         )
         mock_ref_model.with_structured_output.return_value = structured_mock
@@ -190,14 +190,12 @@ class TestSerializationFidelity:
 
     def test_referee_judgment_roundtrip(self):
         original = RefereeJudgment(
-            round=3,
             continue_debate=False,
             new_thesis="最终论题：AI 应在高风险领域受监管。",
             reasoning="论题已清晰明确，边界条件完整。",
             improvement_hint="建议在实际政策制定中参考此论题。",
         )
         restored = RefereeJudgment(**original.model_dump())
-        assert restored.round == original.round
         assert restored.continue_debate == original.continue_debate
         assert restored.new_thesis == original.new_thesis
         assert restored.reasoning == original.reasoning
@@ -216,31 +214,17 @@ class TestSerializationFidelity:
         assert restored.thesis_before == original.thesis_before
         assert restored.thesis_after == original.thesis_after
 
-    def test_message_roundtrip(self):
-        original = Message(role="user", content="我的回应", round=2)
-        restored = Message(**original.model_dump())
-        assert restored.role == "user"
-        assert restored.content == "我的回应"
-        assert restored.round == 2
+    def test_extra_fields_forbidden_in_judgment(self):
+        """RefereeJudgment 拒绝未定义的字段。"""
+        from pydantic import ValidationError
 
-    def test_debate_result_construction(self):
-        record = RoundRecord(
-            round_number=1, thesis_before="A", critique="B",
-            user_response="C", draft_thesis="D", confirmed_thesis="E",
-            thesis_after="F", continue_debate=False,
-            referee_reasoning="完成",
-        )
-        result = DebateResult(
-            initial_thesis="A",
-            final_thesis="F",
-            total_rounds=1,
-            rounds=[record],
-            summary="演化完成。",
-        )
-        assert result.initial_thesis == "A"
-        assert result.final_thesis == "F"
-        assert result.total_rounds == 1
-        assert len(result.rounds) == 1
+        with pytest.raises(ValidationError):
+            RefereeJudgment(
+                continue_debate=True,
+                new_thesis="论题",
+                reasoning="理由",
+                unknown_field="不应存在",
+            )
 
 
 # =============================================================================
@@ -513,19 +497,9 @@ class TestStateEdgeCases:
 class TestSerializationEdgeCases:
     """Pydantic 模型的边界值与扩展行为。"""
 
-    def test_message_model_min_length_strings(self):
-        """Message 最短合法字段（单字符 content）。"""
-        msg = Message(role="user", content="x", round=1)
-        assert msg.content == "x"
-        assert msg.role == "user"
-        d = msg.model_dump()
-        restored = Message(**d)
-        assert restored.content == "x"
-
     def test_referee_judgment_min_length_fields(self):
         """RefereeJudgment 单字符 new_thesis/reasoning 通过验证。"""
         j = RefereeJudgment(
-            round=1,
             continue_debate=True,
             new_thesis="x",
             reasoning="y",
@@ -554,8 +528,8 @@ class TestSerializationEdgeCases:
         restored = RoundRecord(**record.model_dump())
         assert restored.thesis_before == "前"
 
-    def test_debate_result_roundtrip(self):
-        """DebateResult model_dump → 重建验证。"""
+    def test_round_record_model_dump_roundtrip(self):
+        """RoundRecord model_dump → 重建验证（完整往返）。"""
         record = RoundRecord(
             round_number=1,
             thesis_before="A", critique="B",
@@ -563,16 +537,7 @@ class TestSerializationEdgeCases:
             confirmed_thesis="E", thesis_after="F",
             continue_debate=False, referee_reasoning="完成",
         )
-        original = DebateResult(
-            initial_thesis="A",
-            final_thesis="F",
-            total_rounds=1,
-            rounds=[record],
-            summary="演化完成。",
-        )
-        restored = DebateResult(**original.model_dump())
-        assert restored.initial_thesis == original.initial_thesis
-        assert restored.final_thesis == original.final_thesis
-        assert restored.total_rounds == original.total_rounds
-        assert len(restored.rounds) == 1
-        assert restored.rounds[0].thesis_before == "A"
+        restored = RoundRecord(**record.model_dump())
+        assert restored.round_number == record.round_number
+        assert restored.thesis_before == "A"
+        assert restored.thesis_after == "F"

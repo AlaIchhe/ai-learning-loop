@@ -115,8 +115,27 @@ cp .env.example .env
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 70 个用例，Mock LLM，无需真实 API
+python -m pytest tests/ -v    # 128 个用例，Mock LLM，无需真实 API
 ```
+
+### 真实 API 集成测试
+
+```bash
+python scripts/integration_test_real.py           # 6 个集成测试全量运行（需 API Key）
+python scripts/integration_test_real.py --quick   # 仅单 Agent 测试
+python scripts/integration_test_real.py --workflow  # 仅 LangGraph 工作流测试
+```
+
+使用真实 API Key 测试完整系统（无 Mock）。覆盖 Opponent / Presenter / Referee 单 Agent 有效性、LangGraph 完整单轮/多轮工作流、Checkpoint 持久性。**适配 DeepSeek**：裁判采用 JSON-mode 提示 + 手动解析替代 `with_structured_output()`（DeepSeek 不支持 `response_format`）。
+
+### 幽灵探针（环境诊断）
+
+```bash
+python scripts/ghost_probe.py           # 7 个探针全量运行，验证 LLM 环境健康
+python scripts/ghost_probe.py --quick   # 仅快速探针（环境诊断 + API 连通性）
+```
+
+幽灵探针是独立的诊断脚本，用真实 API Key 探测 LLM 供应商环境：API 连通性、结构化输出合规、三个 Agent 提示词有效性、完整一轮协作。不纳入 pytest。
 
 ## 支持的大模型供应商
 
@@ -158,11 +177,16 @@ ai-learning-loop/
 │   └── graph.py             # LangGraph 图组装（8 节点）、条件路由、export_graph()
 ├── ui/                      # 展现层
 │   └── app.py               # Streamlit 界面（动态中断 UI、路径自适应 .env 加载）
-├── tests/                   # 测试（Mock LLM，70 个用例）
-│   ├── test_agents.py       # 30 个用例：6 个 agent 节点契约 + 中断幂等性 + 裁判静默
-│   ├── test_workflow.py     # 14 个用例：调度节点、路由、图编译、无 interrupt_before
+├── tests/                   # 测试（Mock LLM，128 个用例）
+│   ├── test_agents.py       # 43 个用例：6 个 agent 节点契约 + 中断幂等性 + 边界/错误路径
+│   ├── test_workflow.py     # 21 个用例：调度节点、路由、图编译、export_graph、边界值
 │   ├── test_integration.py  # 5 个用例：中断/恢复多轮生命周期、论题演化链
-│   └── test_interfaces.py   # 21 个用例：跨层接口、序列化、checkpoint、路由
+│   ├── test_interfaces.py   # 30 个用例：跨层接口、序列化、checkpoint、路由、prompt 边界
+│   ├── test_model.py        # 16 个用例：get_chat_model() 全分支（env var、回退、警告、空字符串）
+│   └── test_smoke.py        # 13 个用例：模块导入、图编译、prompt 有效性、端到端组装
+├── scripts/                 # 诊断与集成测试工具
+│   ├── ghost_probe.py       # 幽灵探针：7 个 LLM 环境探针（诊断 / API / 提示词 / 完整流程）
+│   └── integration_test_real.py  # 真实 API 集成测试（6 个用例，DeepSeek 适配版）
 ├── pyproject.toml           # 项目元数据、依赖、ruff/mypy/pyright/pytest 配置
 ├── run.py                   # 通用启动器（从任意目录 python run.py）
 ├── .env.example             # 环境变量模板
@@ -206,7 +230,7 @@ ai-learning-loop/
 | `ruff` | 代码风格与 Lint（零告警） |
 | `pyright` | Strict 模式类型检查（零错误） |
 | `mypy` | 补充类型检查（零错误） |
-| `pytest` | 单元测试（70 个用例） |
+| `pytest` | 单元测试（128 个用例） |
 
 ## License
 

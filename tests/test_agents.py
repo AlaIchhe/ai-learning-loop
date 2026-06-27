@@ -309,7 +309,6 @@ class TestRefereeDeliberateNode:
 
     def _make_judgment(self, **overrides) -> RefereeJudgment:
         defaults = {
-            "round": 1,
             "continue_debate": True,
             "new_thesis": "拼合后的新论题。",
             "reasoning": "论题仍有歧义，需要进一步精确化。",
@@ -429,7 +428,7 @@ class TestRefereeDeliberateNode:
             _draft_thesis="d2", _confirmed_thesis="cf2",
             current_thesis="旧拼合",
         )
-        judgment = self._make_judgment(round=2, new_thesis="新拼合")
+        judgment = self._make_judgment(new_thesis="新拼合")
         model = _make_mock_referee_model(judgment)
         result = referee_deliberate_node(state, model=model)
 
@@ -610,7 +609,6 @@ class TestRefereeEdgeCases:
 
     def _make_judgment(self, **overrides) -> RefereeJudgment:
         defaults = {
-            "round": 1,
             "continue_debate": True,
             "new_thesis": "拼合后的新论题。",
             "reasoning": "需要进一步深化。",
@@ -658,7 +656,7 @@ class TestRefereeEdgeCases:
             _draft_thesis="d", _confirmed_thesis="cf",
             current_thesis="旧拼合",
         )
-        judgment = self._make_judgment(round=2, new_thesis="新拼合")
+        judgment = self._make_judgment(new_thesis="新拼合")
         model = _make_mock_referee_model(judgment)
         result = referee_deliberate_node(state, model=model)
 
@@ -699,7 +697,7 @@ class TestRefereeEdgeCases:
             _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
-        judgment = self._make_judgment(round=9999)
+        judgment = self._make_judgment()
         model = _make_mock_referee_model(judgment)
         result = referee_deliberate_node(state, model=model)
 

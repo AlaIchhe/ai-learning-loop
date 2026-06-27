@@ -16,8 +16,8 @@ Referee 节点 —— 论题拼合者与终局判定者。
 
 import json
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 from agents._base import extract_content, make_message
 from core.model import get_chat_model
@@ -32,7 +32,7 @@ from core.state import AgentState
 
 
 def referee_deliberate_node(
-    state: AgentState, model: ChatOpenAI | None = None
+    state: AgentState, model: BaseChatModel | None = None
 ) -> dict:
     """裁判审议节点：拼合论题并判定是否继续。
 
@@ -84,7 +84,6 @@ def referee_deliberate_node(
 
     raw = structured_model.invoke([system_msg, user_msg])
     judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
-    judgment.round = state["round"]
 
     # --- Step 2: 本轮归档 ---
     round_record = RoundRecord(
@@ -118,7 +117,6 @@ def referee_deliberate_node(
         history_json = json.dumps(
             [r.model_dump() for r in result["history"]],
             ensure_ascii=False,
-            default=str,
         )
         summary_system = SystemMessage(content=FINAL_SUMMARY_PROMPT)
         summary_user = HumanMessage(

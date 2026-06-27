@@ -9,8 +9,8 @@ Agent 节点共享基础工具 —— 消除 Compute/Interact 节点间的模板
 
 from collections.abc import Callable
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 from core.model import get_chat_model
 from core.state import AgentState
@@ -46,7 +46,7 @@ def make_message(role: str, content: str, round_num: int) -> dict[str, object]:
 
 
 def invoke_llm(
-    model: ChatOpenAI | None,
+    model: BaseChatModel | None,
     temperature: float,
     system_prompt: str,
     user_prompt: str,
