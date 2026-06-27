@@ -60,7 +60,8 @@ def referee_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
     )
 
     # 调用 LLM（返回 RefereeJudgment 实例）
-    judgment: RefereeJudgment = structured_model.invoke([system_msg, user_msg])
+    raw = structured_model.invoke([system_msg, user_msg])
+    judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
     # 确保 round 字段与 state 一致（防御性修正）
     judgment.round = state["round"]
 

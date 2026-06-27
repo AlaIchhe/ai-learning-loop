@@ -10,6 +10,7 @@ Streamlit 展现层 —— 纯渲染与输入收集。
 
 # .env 必须在所有 LangChain/LangGraph import 之前加载，
 # 否则 LANGCHAIN_TRACING_V2 等环境变量不会生效。
+# ruff: noqa: E402
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -7,8 +7,7 @@ Workflow 图编排的单元测试。
 
 from unittest.mock import MagicMock
 
-import pytest
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END
 
 from core.state import AgentState
 from core.schemas import RefereeJudgment, CategoryScores
@@ -175,7 +174,7 @@ class TestBuildGraph:
         config = {"configurable": {"thread_id": "test-chain"}}
         # 多次调用直到结束，每次经过一个 interrupt
         state = _make_initial_state()
-        events = list(graph.stream(state, config))
+        list(graph.stream(state, config))
         # 第一个 interrupt 在 presenter 之前，所以 presenter 尚未被调用
         assert presenter_spy.call_count == 0
 

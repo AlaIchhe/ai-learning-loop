@@ -6,8 +6,7 @@ Agent 节点的单元测试。
 
 from unittest.mock import MagicMock
 
-import pytest
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from core.state import AgentState
 from core.schemas import RefereeJudgment, CategoryScores, RoundRecord

@@ -58,7 +58,8 @@ def presenter_node(state: AgentState, model: ChatOpenAI | None = None) -> dict:
 
     # 调用 LLM
     response = model.invoke([system_msg, user_msg])
-    argument = response.content.strip()
+    content = response.content
+    argument = (content if isinstance(content, str) else str(content)).strip()
 
     # 构造新消息
     new_msg = {

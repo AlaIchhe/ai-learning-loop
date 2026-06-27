@@ -12,7 +12,6 @@
 
 from uuid import uuid4
 
-import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 
@@ -28,7 +27,6 @@ from core.prompts import (
     presenter_prompt,
     opponent_prompt,
     referee_prompt,
-    final_summary_prompt,
 )
 from workflow.graph import build_graph, _start_node, _next_round_node, _route_after_referee
 
@@ -186,12 +184,12 @@ class TestNodeOutputInterface:
         s2 = {**s, **r1}
         r2 = _test_opponent(s2)
         msg = r2["messages"][-1]
-        assert expected_keys.issubset(msg.keys()), f"opponent msg missing keys"
+        assert expected_keys.issubset(msg.keys()), "opponent msg missing keys"
 
         s3 = {**s2, **r2}
         r3 = _test_referee(s3)
         msg = r3["messages"][-1]
-        assert expected_keys.issubset(msg.keys()), f"referee msg missing keys"
+        assert expected_keys.issubset(msg.keys()), "referee msg missing keys"
 
     def test_scheduler_nodes_dont_leak_keys(self):
         """调度节点只返回声明的 key，不污染 State。"""
@@ -304,10 +302,10 @@ class TestCheckpointInterface:
         }
 
         # 逐步推进至 done
-        state = graph.invoke(initial, config)   # → interrupt before presenter
-        state = graph.invoke(None, config)      # → presenter done
-        state = graph.invoke(None, config)      # → opponent done
-        state = graph.invoke(None, config)      # → referee → done
+        graph.invoke(initial, config)   # → interrupt before presenter
+        graph.invoke(None, config)      # → presenter done
+        graph.invoke(None, config)      # → opponent done
+        graph.invoke(None, config)      # → referee → done
 
         # 从 checkpoint 读回
         snapshot = graph.get_state(config)
