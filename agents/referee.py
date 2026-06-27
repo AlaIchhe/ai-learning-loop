@@ -85,21 +85,7 @@ def referee_deliberate_node(
     judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
     judgment.round = state["round"]
 
-    # --- Step 2: 构造裁判消息 ---
-    decision = "继续" if judgment.continue_debate else "结束"
-    new_msg: dict[str, object] = {
-        "role": "referee",
-        "content": (
-            f"【第 {judgment.round} 轮裁定】\n"
-            f"判定: {decision}辩论\n"
-            f"新论题: {judgment.new_thesis}\n"
-            f"理由: {judgment.reasoning}\n"
-            f"建议: {judgment.improvement_hint}"
-        ),
-        "round": state["round"],
-    }
-
-    # --- Step 3: 本轮归档 ---
+    # --- Step 2: 本轮归档 ---
     round_record = RoundRecord(
         round_number=state["round"],
         thesis_before=state["current_thesis"],
@@ -113,18 +99,19 @@ def referee_deliberate_node(
     )
 
     result: dict = {
-        "messages": state["messages"] + [new_msg],
         "history": state["history"] + [round_record],
     }
 
-    # --- Step 4: 判定路由 ---
+    # --- Step 3: 判定路由 ---
     if judgment.continue_debate:
+        # 正常轮次：静默更新论题，不产生对用户可见的消息
         result["current_thesis"] = judgment.new_thesis
         result["status"] = "opponent_computing"
+        result["messages"] = state["messages"]
     else:
+        # 辩论终止：生成最终总结，作为裁判消息展示给用户
         result["status"] = "done"
 
-        # 生成最终总结
         history_json = json.dumps(
             [r.model_dump() for r in result["history"]],
             ensure_ascii=False,
@@ -144,6 +131,14 @@ def referee_deliberate_node(
             summary_content if isinstance(summary_content, str)
             else str(summary_content)
         ).strip()
+
+        # 将最终总结作为裁判消息写入对话历史
+        new_msg: dict[str, object] = {
+            "role": "referee",
+            "content": final_result,
+            "round": state["round"],
+        }
+        result["messages"] = state["messages"] + [new_msg]
         result["final_result"] = final_result
 
     return result

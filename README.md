@@ -1,21 +1,21 @@
 # 🎓 多智能体论题演化系统
 
-基于 LangGraph 的三智能体论题迭代精炼系统。**批判者**审视论题漏洞、**精确化者**将用户回应转化为学术表述、**裁判**拼合新旧论题并判定演化方向。Streamlit 提供动态中断人机协作界面，LangSmith 提供全链路可观测性。
+基于 LangGraph 的三智能体认知深化系统。**批判者**攻击论题的边界与隐含前提、**精确化者**将用户回应转化为精确表述、**裁判**将每轮讨论揭示的新认知层次有机拼合到论题中（一句话逐步生长为一段话）。Streamlit 提供动态中断人机协作界面，LangSmith 提供全链路可观测性。
 
 ## 核心机制
 
 ```
 每轮:
-  批判者 审视 current_thesis → 生成 critique → [动态中断: 用户回应]
+  批判者 攻击论题边界/前提 → 生成 critique → [动态中断: 用户回应]
   精确化者 读用户回应 → 生成 draft_thesis → [动态中断: 用户确认]
-  裁判 拼合 draft + confirmed → 新 current_thesis → 继续/结束
+  裁判 拼合新认知层次 → 有机追加到 current_thesis → 继续/结束
 ```
 
-- **批判者（Opponent）**：审视当前论题，指出逻辑漏洞、歧义、未经证实的假设
-- **精确化者（Presenter）**：将用户非正式回应转化为精确的学术论题语言
-- **裁判（Referee）**：对比新旧论题，拼合演化版本，判定是否足够完善
+- **批判者（Opponent）**：攻击论题最薄弱的一个边界或隐含前提，三选一策略（逻辑漏洞 / 边界追问 / 反例证伪），单点突破，极简输出。哲学基础：真理是具体的、有条件的。
+- **精确化者（Presenter）**：将用户非正式回应转化为边界清晰的精确论题表述，保留核心意图、消解歧义、明确适用范围。
+- **裁判（Referee）**：将每轮讨论中揭示的新边界、新限定有机拼合到论题中（保留核心主张，融入新层次）。正常轮次静默不输出，仅在辩论终止时生成总结报告。
 
-`current_thesis` 是唯一跨轮次持久化的状态。每轮经批判、回应、精确化、确认、拼合后持续演化，直到裁判判定结束。
+`current_thesis` 是唯一跨轮次持久化的状态。每轮经批判、回应、精确化、确认后，裁判将新认知层次拼合进去，论题从一句话逐步生长为一段逻辑递进的完整论述，直到裁判判定充分深化为止。
 
 ## 代码质量
 
@@ -115,7 +115,7 @@ cp .env.example .env
 ### 运行测试
 
 ```bash
-python -m pytest tests/ -v    # 69 个用例，Mock LLM，无需真实 API
+python -m pytest tests/ -v    # 70 个用例，Mock LLM，无需真实 API
 ```
 
 ## 支持的大模型供应商
@@ -151,15 +151,15 @@ ai-learning-loop/
 │   ├── prompts.py           # System Prompt 与模板函数（批判/精确化/拼合/总结）
 │   └── model.py             # LLM 模型工厂（多供应商切换，缺失 API Key 自动警告）
 ├── agents/                  # 智能体节点（无状态纯函数，compute + interact 拆分）
-│   ├── opponent.py          # 批判者：current_thesis → critique（compute）/ interrupt 展示（interact）
+│   ├── opponent.py          # 批判者：攻击论题边界/前提 → critique（compute）/ interrupt 展示（interact）
 │   ├── presenter.py         # 精确化者：用户回应 → draft_thesis（compute）/ interrupt 确认（interact）
-│   └── referee.py           # 裁判：拼合论题 + 判定继续/结束 + 终局总结
+│   └── referee.py           # 裁判：拼合认知层次 + 判定继续/结束 + 终局总结（静默路由，仅终止时输出）
 ├── workflow/                # 编排层
 │   └── graph.py             # LangGraph 图组装（8 节点）、条件路由、export_graph()
 ├── ui/                      # 展现层
 │   └── app.py               # Streamlit 界面（动态中断 UI、路径自适应 .env 加载）
-├── tests/                   # 测试（Mock LLM，69 个用例）
-│   ├── test_agents.py       # 29 个用例：6 个 agent 节点契约 + 中断幂等性
+├── tests/                   # 测试（Mock LLM，70 个用例）
+│   ├── test_agents.py       # 30 个用例：6 个 agent 节点契约 + 中断幂等性 + 裁判静默
 │   ├── test_workflow.py     # 14 个用例：调度节点、路由、图编译、无 interrupt_before
 │   ├── test_integration.py  # 5 个用例：中断/恢复多轮生命周期、论题演化链
 │   └── test_interfaces.py   # 21 个用例：跨层接口、序列化、checkpoint、路由
@@ -185,7 +185,8 @@ ai-learning-loop/
 - **动态中断（`interrupt()`）**：人工介入通过节点内部的 `interrupt()` 调用实现，搭配 `Command(resume=...)` 恢复，不使用静态 `interrupt_before`
 - **Compute/Interact 拆分**：每个需要人工介入的 Agent 拆为 compute（LLM 调用，无中断）和 interact（无 LLM，含 `interrupt()`）两个节点，避免 resume 时 LLM 重复执行
 - **状态分离**：`st.session_state` 仅存 UI 元数据，论题演化状态完全存储在 LangGraph checkpointer 中
-- **`current_thesis` 唯一持久化**：仅 `current_thesis` 跨轮次演化；批判、草稿、确认均为 `_` 前缀轮次缓存，每轮清空
+- **`current_thesis` 拼合式演化**：论题以"层层叠加"方式生长（原始核心主张 + 每轮发现的新认知层次 → 一句话生长为一段话）。批判、草稿、确认均为 `_` 前缀轮次缓存，每轮清空
+- **裁判静默路由**：正常轮次中裁判不输出对用户可见的消息，仅静默更新 `current_thesis` 并判定路由。仅在辩论终止时生成总结报告
 
 ## 依赖
 
@@ -205,7 +206,7 @@ ai-learning-loop/
 | `ruff` | 代码风格与 Lint（零告警） |
 | `pyright` | Strict 模式类型检查（零错误） |
 | `mypy` | 补充类型检查（零错误） |
-| `pytest` | 单元测试（69 个用例） |
+| `pytest` | 单元测试（70 个用例） |
 
 ## License
 

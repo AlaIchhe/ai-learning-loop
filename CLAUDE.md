@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A **thesis evolution system** built with LangGraph. Three LLM agents — **Opponent** (批判者), **Presenter** (精确化者), and **Referee** (裁判) — iteratively refine a thesis through critique, reformulation, and synthesis. Human-in-the-loop control uses LangGraph's dynamic `interrupt()` + `Command(resume=...)` mechanism via a Streamlit UI. LangSmith provides full observability, and `core/model.py` enables switching between OpenAI, DeepSeek, and any OpenAI-compatible provider without code changes.
+A **cognitive deepening system** built with LangGraph. Three LLM agents — **Opponent** (批判者), **Presenter** (精确化者), and **Referee** (裁判) — iteratively deepen a thesis through boundary probing, precise reformulation, and accretive layering. The thesis grows from a single sentence into a well-scoped paragraph by accumulating cognitive layers each round. Human-in-the-loop control uses LangGraph's dynamic `interrupt()` + `Command(resume=...)` mechanism via a Streamlit UI. LangSmith provides full observability, and `core/model.py` enables switching between OpenAI, DeepSeek, and any OpenAI-compatible provider without code changes.
 
 ## Development Commands
 
@@ -13,7 +13,7 @@ source venv/Scripts/activate        # Activate virtual environment
 pip install -r requirements.txt     # Install dependencies
 cp .env.example .env                # Configure API keys (first time only)
 
-# Testing (69 tests, all LLM calls mocked — no real API needed)
+# Testing (70 tests, all LLM calls mocked — no real API needed)
 python -m pytest tests/ -v          # Run all tests
 
 # Code quality
@@ -71,7 +71,7 @@ core/{state,schemas,prompts,model}.py   ← System contracts all layers depend o
 
 | Group | Fields | Purpose |
 |-------|--------|---------|
-| Core thesis | `current_thesis` | The ONLY persistent evolving content. Referee synthesizes each round. |
+| Core thesis | `current_thesis` | The ONLY persistent evolving content. Grows by accretion — referee layers new cognitive insights onto the original core each round (one sentence → one paragraph). |
 | Round control | `round`, `status` | State machine: `idle → opponent_computing → awaiting_critique_response → presenter_computing → awaiting_thesis_confirmation → referee_deliberating → done` |
 | Messages | `messages: list[dict]` | Custom roles (`opponent/user/presenter/referee`). Plain `list`, not `add_messages`. Append via `state["messages"] + [new_msg]`. |
 | Round cache (`_` prefix) | `_critique`, `_user_response`, `_draft_thesis`, `_confirmed_thesis` | Per-round ephemeral data. Cleared by `next_round` node. `_` prefix distinguishes from persistent state. |
@@ -80,10 +80,10 @@ core/{state,schemas,prompts,model}.py   ← System contracts all layers depend o
 **`schemas.py`** — Pydantic v2 models. `RefereeJudgment` (with `continue_debate`/`new_thesis`/`reasoning`/`improvement_hint`) is the core contract; referee uses `with_structured_output(RefereeJudgment)`. Hierarchy: `Message → RefereeJudgment → RoundRecord → DebateResult`. `CategoryScores` removed (scoring no longer relevant).
 
 **`prompts.py`** — Four system prompt constants and four template functions. Agents import these — no string hardcoding.
-- `OPPONENT_SYSTEM_PROMPT` / `opponent_prompt(current_thesis)` — Critic role
-- `PRESENTER_SYSTEM_PROMPT` / `presenter_prompt(current_thesis, critique, user_response)` — Formulator role
-- `REFEREE_SYSTEM_PROMPT` / `referee_prompt(current_thesis, draft_thesis, confirmed_thesis, round_num, history_summary)` — Synthesizer role
-- `FINAL_SUMMARY_PROMPT` / `final_summary_prompt(initial_thesis, final_thesis, history_json)` — End-of-debate summary
+- `OPPONENT_SYSTEM_PROMPT` / `opponent_prompt(current_thesis)` — Boundary attacker: probes the weakest assumption or scope limit (3 strategies: logical vulnerability / Socratic boundary-questioning / counterexample falsification). Single-point, ≤80 chars.
+- `PRESENTER_SYSTEM_PROMPT` / `presenter_prompt(current_thesis, critique, user_response)` — Precision refiner: elevates informal user response into a well-scoped thesis statement while preserving core intent.
+- `REFEREE_SYSTEM_PROMPT` / `referee_prompt(current_thesis, draft_thesis, confirmed_thesis, round_num, history_summary)` — Cognitive accumulator: layers new insights onto the existing thesis (accretion, not replacement). Silent during normal rounds (JSON-only output for internal routing).
+- `FINAL_SUMMARY_PROMPT` / `final_summary_prompt(initial_thesis, final_thesis, history_json)` — End-of-debate summary: traces how the thesis grew layer by layer.
 
 **`model.py`** — `get_chat_model(temperature)` reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` from env and returns a configured `ChatOpenAI`. If no API key is found, emits a `RuntimeWarning` with diagnostic instructions. Adding a new provider is a `.env` change, never a code change.
 
@@ -94,9 +94,9 @@ core/{state,schemas,prompts,model}.py   ← System contracts all layers depend o
 ```
 
 Each agent is split into **compute + interact** nodes to prevent LLM re-execution on `interrupt()` resume:
-- `opponent_compute_node` / `opponent_interact_node` (含 `interrupt()`)
-- `presenter_compute_node` / `presenter_interact_node` (含 `interrupt()`)
-- `referee_deliberate_node` (single node, no interrupt)
+- `opponent_compute_node` / `opponent_interact_node` (含 `interrupt()`) — Attacks thesis boundaries/assumptions
+- `presenter_compute_node` / `presenter_interact_node` (含 `interrupt()`) — Refines user responses into precise thesis statements
+- `referee_deliberate_node` (single node, no interrupt) — Layers new cognitive insights onto thesis (silent unless terminating)
 
 Compute nodes call LLM and return results. Interact nodes read cached results and call `interrupt()` for human input. On resume, interact nodes re-execute but only do idempotent state reads — no LLM re-invocation.
 
@@ -143,11 +143,11 @@ Key UI functions:
 - `_resume_with_input(user_value)` — calls `graph.invoke(Command(resume=user_value), config)`
 - `_get_interrupt_value()` — checks `graph.get_state(config).interrupts` for active interrupt data
 
-## Testing (69 tests, 4 files)
+## Testing (70 tests, 4 files)
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `test_agents.py` | 29 | Opponent compute (6), Opponent interact (3), Presenter compute (6), Presenter interact (4), Referee deliberate (8), Interrupt idempotency (2) |
+| `test_agents.py` | 30 | Opponent compute (6), Opponent interact (3), Presenter compute (6), Presenter interact (4), Referee deliberate (9), Interrupt idempotency (2) |
 | `test_workflow.py` | 14 | Start/next_round scheduling, conditional routing (all 7 status values), graph compilation, no interrupt_before assert |
 | `test_integration.py` | 5 | Single-round lifecycle (2 interrupts), multi-round thesis evolution, state survives interrupt, no message duplication on resume |
 | `test_interfaces.py` | 21 | Prompt injection (4), node output key validation (6), Pydantic serialization round-trip (4), checkpoint fidelity (2), routing correctness (3), state merge safety (1) |
@@ -157,9 +157,11 @@ All tests use Mock LLMs — no real API calls required.
 ## Key Design Decisions
 
 - **Compute/Interact split**: Each agent with an `interrupt()` is split into compute (LLM) + interact (human I/O) nodes. This prevents LLM re-execution on resume — compute nodes complete fully and are checkpointed before the interact node starts.
-- **`current_thesis` as sole persistent content**: Only `current_thesis` evolves across rounds. Critique, draft, and confirmation are round-cache fields (`_` prefix) cleared each round.
+- **Accretive thesis model**: `current_thesis` grows by accretion, not replacement. The referee layers new cognitive insights (boundaries, scope limits, operational definitions) onto the original core claim. Original thesis: one sentence → final thesis: one paragraph. Core claim preserved; wording may be微调 for coherence.
+- **Referee silence during normal rounds**: Referee does NOT produce user-visible messages when `continue_debate=True`. It only updates `current_thesis` and routes. `reasoning` / `improvement_hint` are internal fields for the next round's agents. The referee only outputs a message when the debate terminates (`continue_debate=False`), containing the final summary.
+- **Opponent attacks boundaries, not truth**: Philosophy — truth is concrete and conditional (materialist dialectics). The opponent attacks the thesis's weakest boundary or unstated assumption, not its core truth value. Three strategies: logical vulnerability / Socratic boundary-questioning / counterexample falsification. Single-point, ≤80 chars.
 - **Dynamic `interrupt()` only**: No `interrupt_before` configuration. Human interaction happens precisely when an interact node calls `interrupt(value)`, and resumes with `Command(resume=user_value)`.
-- **Referee decides when to end**: No `max_rounds`. The referee LLM outputs `continue_debate: bool` via structured output to control the debate lifecycle.
+- **Referee decides when to end**: No `max_rounds`. The referee LLM outputs `continue_debate: bool` via structured output to control the debate lifecycle. Decision criteria: stop when no meaningful new cognitive layers emerge, continue when new distinctions or boundaries are discovered.
 - **`messages` is a plain `list`, not `add_messages`**: LangChain's reducer rejects custom roles (`opponent`/`presenter`/`referee`/`user`). Agents append manually.
 - **Only `next_round_node` touches `round`**: Agents never increment the round counter — pure scheduling concern.
 - **Referee uses `with_structured_output(RefereeJudgment)`**: Pydantic model forces valid JSON. Temperature is 0.0 for deterministic output.

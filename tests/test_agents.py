@@ -379,6 +379,8 @@ class TestRefereeDeliberateNode:
         assert result["status"] == "opponent_computing"
         assert "current_thesis" in result
         assert result["current_thesis"] == "拼合后的新论题。"
+        # 正常轮次不追加裁判消息
+        assert len(result["messages"]) == len(state["messages"])
 
     def test_status_done_when_referee_ends(self):
         state = _make_state(
@@ -392,19 +394,37 @@ class TestRefereeDeliberateNode:
         assert result["status"] == "done"
         assert "final_result" in result
         assert len(result["final_result"]) > 0
+        # 终止时追加裁判消息
+        assert len(result["messages"]) == 1
+        assert result["messages"][0]["role"] == "referee"
 
-    def test_appends_referee_message(self):
+    def test_no_referee_message_when_continue(self):
+        """正常轮次（continue_debate=True）：裁判不产生对用户可见的消息。"""
         state = _make_state(
             messages=[], _critique="c", _user_response="u",
             _draft_thesis="d", _confirmed_thesis="cf",
         )
-        judgment = self._make_judgment()
+        judgment = self._make_judgment(continue_debate=True)
+        model = _make_mock_referee_model(judgment)
+        result = referee_deliberate_node(state, model=model)
+
+        msgs = result["messages"]
+        assert len(msgs) == 0  # 正常轮次不追加裁判消息
+
+    def test_appends_referee_message_when_done(self):
+        """辩论终止（continue_debate=False）：裁判输出最终总结作为消息。"""
+        state = _make_state(
+            messages=[], _critique="c", _user_response="u",
+            _draft_thesis="d", _confirmed_thesis="cf",
+        )
+        judgment = self._make_judgment(continue_debate=False)
         model = _make_mock_referee_model(judgment)
         result = referee_deliberate_node(state, model=model)
 
         msgs = result["messages"]
         assert len(msgs) == 1
         assert msgs[0]["role"] == "referee"
+        assert len(msgs[0]["content"]) > 0  # 最终总结作为消息内容
 
     def test_appends_round_record_to_history(self):
         state = _make_state(

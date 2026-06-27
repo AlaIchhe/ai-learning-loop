@@ -90,7 +90,7 @@ class TestPromptStrings:
         assert "当前论题" in result
         assert "草稿" in result
         assert "确认版" in result
-        assert "Round 1" in result
+        assert "第 1 轮" in result
 
     def test_final_summary_prompt_is_plain_str(self):
         assert isinstance(FINAL_SUMMARY_PROMPT, str)
