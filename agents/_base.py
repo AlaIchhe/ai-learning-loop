@@ -7,6 +7,8 @@ Agent 节点共享基础工具 —— 消除 Compute/Interact 节点间的模板
 3. 所有函数无副作用，不访问全局状态。
 """
 
+import logging
+import time
 from collections.abc import Callable
 
 from langchain_core.language_models import BaseChatModel
@@ -14,6 +16,38 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from core.model import get_chat_model
 from core.state import AgentState
+
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# LLM 调用重试配置
+# =============================================================================
+
+_MAX_RETRIES = 3
+"""最大重试次数（含首次调用）。"""
+
+_RETRY_BACKOFF_BASE = 1.0
+"""指数退避基数（秒）：第 n 次重试等待 base * 2^(n-1) 秒。"""
+
+_RETRYABLE_ERRORS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
+"""可重试的瞬时错误类型。"""
+
+
+def _is_retryable(error: Exception) -> bool:
+    """判断异常是否可重试（网络/超时问题，非逻辑/鉴权错误）。"""
+    if isinstance(error, _RETRYABLE_ERRORS):
+        return True
+    # langchain / openai 的 RateLimitError, APITimeoutError 等
+    error_name = type(error).__name__
+    return any(
+        keyword in error_name.lower()
+        for keyword in ("timeout", "ratelimit", "connection", "apiconnection")
+    )
+
 
 # =============================================================================
 # 内容提取 & 消息构造（消除 3×/6× 重复）
@@ -45,13 +79,53 @@ def make_message(role: str, content: str, round_num: int) -> dict[str, object]:
 # =============================================================================
 
 
+def invoke_with_retry(
+    invocable,  # BaseChatModel | structured model
+    messages: list,
+    *,
+    label: str = "LLM",
+) -> BaseMessage:
+    """调用 invocable.invoke(messages)，失败时自动重试。
+
+    对瞬时网络/超时/速率限制错误自动重试（最多 3 次，指数退避 1s/2s/4s）。
+
+    Args:
+        invocable: 可调用 .invoke(messages) 的对象（BaseChatModel 或 structured model）。
+        messages: 消息列表。
+        label: 日志标签（用于区分不同调用点）。
+
+    Returns:
+        invocable.invoke() 的原始返回值。
+
+    Raises:
+        最后一次尝试的异常（重试耗尽后）。
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return invocable.invoke(messages)
+        except Exception as exc:
+            last_error = exc
+            if not _is_retryable(exc) or attempt == _MAX_RETRIES:
+                raise
+            wait = _RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+            logger.warning(
+                "%s 调用失败（第 %d/%d 次），%s 秒后重试: %s",
+                label, attempt, _MAX_RETRIES, wait, exc,
+            )
+            time.sleep(wait)
+
+    assert last_error is not None
+    raise last_error
+
+
 def invoke_llm(
     model: BaseChatModel | None,
     temperature: float,
     system_prompt: str,
     user_prompt: str,
 ) -> str:
-    """调用 LLM 并返回提取后的文本内容。
+    """调用 LLM 并返回提取后的文本内容（含自动重试）。
 
     封装 model 懒初始化 + SystemMessage/HumanMessage 构造 + invoke + 内容提取。
 
@@ -67,10 +141,14 @@ def invoke_llm(
     if model is None:
         model = get_chat_model(temperature=temperature)
 
-    response = model.invoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
-    ])
+    response = invoke_with_retry(
+        model,
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ],
+        label="LLM",
+    )
     return extract_content(response).strip()
 
 

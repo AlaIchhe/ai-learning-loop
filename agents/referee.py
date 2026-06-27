@@ -19,7 +19,7 @@ import json
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from agents._base import extract_content, make_message
+from agents._base import extract_content, invoke_with_retry, make_message
 from core.model import get_chat_model
 from core.prompts import (
     FINAL_SUMMARY_PROMPT,
@@ -82,8 +82,10 @@ def referee_deliberate_node(
         )
     )
 
-    raw = structured_model.invoke([system_msg, user_msg])
-    judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
+    raw = invoke_with_retry(
+        structured_model, [system_msg, user_msg], label="RefereeJudgment"
+    )
+    judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)  # type: ignore[arg-type]
 
     # --- Step 2: 本轮归档 ---
     round_record = RoundRecord(
@@ -126,7 +128,9 @@ def referee_deliberate_node(
                 history_json=history_json,
             )
         )
-        summary_response = model.invoke([summary_system, summary_user])
+        summary_response = invoke_with_retry(
+            model, [summary_system, summary_user], label="FinalSummary"
+        )
         final_result = extract_content(summary_response).strip()
 
         # 将最终总结作为裁判消息写入对话历史
