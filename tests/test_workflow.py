@@ -5,8 +5,12 @@ Workflow 图编排的单元测试。
 所有节点用纯函数 Mock，不涉及 LLM 调用。
 """
 
+import os
+import tempfile
 from typing import cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from core.schemas import RoundRecord
 from core.state import AgentState
@@ -15,6 +19,7 @@ from workflow.graph import (
     _route_after_referee,
     _start_node,
     build_graph,
+    export_graph,
 )
 
 # =============================================================================
@@ -326,3 +331,108 @@ class TestBuildGraph:
         assert result["status"] == "done"
         assert len(result["history"]) == 1
         assert result["final_result"] == "终局总结报告。"
+
+
+# =============================================================================
+# 图导出测试
+# =============================================================================
+
+
+class TestExportGraph:
+    """export_graph() 的功能测试。"""
+
+    def test_produces_valid_png_file(self):
+        """export_graph 应生成非空 PNG 文件。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "test_graph.png")
+            # Mock 所有 agent 节点的 LLM 导入，使 export_graph 不触发真实 API
+            with patch("agents.opponent.opponent_compute_node") as mock_oc, \
+                 patch("agents.presenter.presenter_compute_node") as mock_pc, \
+                 patch("agents.referee.referee_deliberate_node") as mock_rd:
+                mock_oc.return_value = {"_critique": "", "messages": [], "status": ""}
+                mock_pc.return_value = {"_draft_thesis": "", "messages": [], "status": ""}
+                mock_rd.return_value = {"messages": [], "history": [], "status": "done", "final_result": ""}
+                export_graph(path)
+            assert os.path.exists(path)
+            assert os.path.getsize(path) > 0
+
+
+# =============================================================================
+# 路由边界测试
+# =============================================================================
+
+
+class TestRouteEdgeCases:
+    """_route_after_referee 边界值测试。"""
+
+    def test_missing_status_key_raises(self):
+        """state 缺少 status 时抛出 KeyError。"""
+        state: dict = {"current_thesis": "x", "round": 1}
+        with pytest.raises(KeyError):
+            _route_after_referee(state)  # type: ignore[arg-type]
+
+    def test_unknown_status_defaults_to_next_round(self):
+        """未知 status 值默认路由到 next_round。"""
+        state = _make_initial_state(status="bogus_value")  # type: ignore[arg-type]
+        assert _route_after_referee(state) == "next_round"
+
+
+# =============================================================================
+# 调度节点边界测试
+# =============================================================================
+
+
+class TestSchedulingEdgeCases:
+    """start_node 和 next_round_node 的边界行为。"""
+
+    def test_start_node_overwrites_non_idle_status(self):
+        """start_node 即使 status 不是 idle 也会覆盖。"""
+        state = _make_initial_state(status="done", round=5)
+        result = _start_node(state)
+        assert result["status"] == "opponent_computing"
+        assert result["round"] == 1
+
+    def test_next_round_preserves_unrelated_fields(self):
+        """next_round_node 不修改 current_thesis 等非缓存字段。"""
+        state = _make_initial_state(
+            round=2,
+            current_thesis="保持不变的论题",
+            history=[MagicMock()],
+            final_result="不改变",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
+        )
+        result = _next_round_node(state)
+        assert result["round"] == 3
+        # 缓存字段被清除
+        assert result["_critique"] == ""
+        assert result["_user_response"] == ""
+        assert result["_draft_thesis"] == ""
+        assert result["_confirmed_thesis"] == ""
+        # 非缓存字段不在返回 dict 中（节点不应修改它们）
+        assert "current_thesis" not in result
+        assert "history" not in result
+        assert "final_result" not in result
+
+
+# =============================================================================
+# 图构建边界测试
+# =============================================================================
+
+
+class TestBuildGraphEdgeCases:
+    """build_graph() 的边界行为。"""
+
+    def test_build_without_checkpointer_compiles(self):
+        """checkpointer=None 时图应编译成功（虽然 interrupt 会在运行时失败）。"""
+        def _oc(s): return {"_critique": "c", "messages": [], "status": "awaiting_critique_response"}
+        def _oi(s): return {"_user_response": "u", "messages": [], "status": "presenter_computing"}
+        def _pc(s): return {"_draft_thesis": "d", "messages": [], "status": "awaiting_thesis_confirmation"}
+        def _pi(s): return {"_confirmed_thesis": "cf", "messages": [], "status": "referee_deliberating"}
+        def _rd(s): return {"messages": [], "history": [], "status": "done", "final_result": "done"}
+
+        graph = build_graph(_oc, _oi, _pc, _pi, _rd, checkpointer=None)
+        assert graph is not None
+        assert hasattr(graph, "invoke")

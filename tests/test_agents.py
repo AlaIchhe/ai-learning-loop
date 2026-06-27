@@ -11,6 +11,7 @@
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import pytest
 from langchain_openai import ChatOpenAI
 
 from agents.opponent import opponent_compute_node, opponent_interact_node
@@ -538,3 +539,206 @@ class TestInterruptIdempotency:
         assert len(result["messages"]) == 2
         assert result["messages"][0]["role"] == "presenter"
         assert result["messages"][1]["role"] == "user"
+
+
+# =============================================================================
+# Opponent 边界/错误路径测试
+# =============================================================================
+
+
+class TestOpponentEdgeCases:
+    """opponent_compute_node 边界值与错误路径。"""
+
+    def test_model_none_uses_default(self):
+        """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
+        state = _make_state()
+        with patch("agents.opponent.get_chat_model") as mock_get:
+            mock_model = _make_mock_model("批判")
+            mock_get.return_value = mock_model
+            result = opponent_compute_node(state, model=None)
+        assert "_critique" in result
+        mock_get.assert_called_once_with(temperature=0.7)
+
+    def test_empty_llm_response_handled(self):
+        """LLM 返回空字符串时不崩溃。"""
+        state = _make_state()
+        model = _make_mock_model("")
+        result = opponent_compute_node(state, model=model)
+        assert isinstance(result["_critique"], str)
+        assert result["_critique"] == ""
+
+    def test_whitespace_only_llm_response(self):
+        """LLM 返回仅空格时，strip 后为空字符串。"""
+        state = _make_state()
+        model = _make_mock_model("   \n  ")
+        result = opponent_compute_node(state, model=model)
+        assert result["_critique"] == ""
+
+    def test_non_string_llm_content(self):
+        """LLM 返回非字符串 content（如 list）时 str() 降级。"""
+        state = _make_state()
+        model = MagicMock(spec=ChatOpenAI)
+        response = MagicMock()
+        response.content = ["意外", "的", "列表"]
+        model.invoke.return_value = response
+        result = opponent_compute_node(state, model=model)
+        assert isinstance(result["_critique"], str)
+        assert len(result["_critique"]) > 0  # str() 降级成功，返回了非空字符串
+
+
+class TestOpponentInteractEdgeCases:
+    """opponent_interact_node 边界值测试。"""
+
+    def test_missing_critique_raises_key_error(self):
+        """state 缺少 _critique 时应抛出 KeyError。"""
+        state = _make_state()
+        # 删除 _critique 键来模拟 state 损坏
+        broken: dict = {k: v for k, v in state.items() if k != "_critique"}
+        with pytest.raises(KeyError):
+            opponent_interact_node(broken)  # type: ignore[arg-type]
+
+
+# =============================================================================
+# Presenter 边界/错误路径测试
+# =============================================================================
+
+
+class TestPresenterEdgeCases:
+    """presenter_compute_node 边界值与错误路径。"""
+
+    def test_model_none_uses_default(self):
+        """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
+        state = _make_state(_critique="c", _user_response="u")
+        with patch("agents.presenter.get_chat_model") as mock_get:
+            mock_model = _make_mock_model("草稿")
+            mock_get.return_value = mock_model
+            result = presenter_compute_node(state, model=None)
+        assert "_draft_thesis" in result
+        mock_get.assert_called_once_with(temperature=0.7)
+
+    def test_empty_llm_response_handled(self):
+        """LLM 返回空字符串时不崩溃。"""
+        state = _make_state(_critique="c", _user_response="u")
+        model = _make_mock_model("")
+        result = presenter_compute_node(state, model=model)
+        assert isinstance(result["_draft_thesis"], str)
+        assert result["_draft_thesis"] == ""
+
+    def test_non_string_llm_content(self):
+        """LLM 返回非字符串 content 时 str() 降级。"""
+        state = _make_state(_critique="c", _user_response="u")
+        model = MagicMock(spec=ChatOpenAI)
+        response = MagicMock()
+        response.content = ["精", "确", "化"]
+        model.invoke.return_value = response
+        result = presenter_compute_node(state, model=model)
+        assert isinstance(result["_draft_thesis"], str)
+        assert len(result["_draft_thesis"]) > 0  # str() 降级成功，返回了非空字符串
+
+
+# =============================================================================
+# Referee 边界/错误路径测试
+# =============================================================================
+
+
+class TestRefereeEdgeCases:
+    """referee_deliberate_node 边界值与错误路径。"""
+
+    def _make_judgment(self, **overrides) -> RefereeJudgment:
+        defaults = {
+            "round": 1,
+            "continue_debate": True,
+            "new_thesis": "拼合后的新论题。",
+            "reasoning": "需要进一步深化。",
+            "improvement_hint": "建议明确边界。",
+        }
+        return RefereeJudgment(**{**defaults, **overrides})
+
+    def test_model_none_uses_default(self):
+        """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
+        state = _make_state(
+            _critique="c", _user_response="u",
+            _draft_thesis="d", _confirmed_thesis="cf",
+        )
+        judgment = self._make_judgment()
+        with patch("agents.referee.get_chat_model") as mock_get:
+            mock_model = MagicMock()
+            structured_mock = MagicMock()
+            structured_mock.invoke.return_value = judgment
+            mock_model.with_structured_output.return_value = structured_mock
+            # 也 mock 普通 invoke（final_result 备用）
+            summary_response = MagicMock()
+            summary_response.content = "总结"
+            mock_model.invoke.return_value = summary_response
+            mock_get.return_value = mock_model
+            result = referee_deliberate_node(state, model=None)
+        assert "status" in result
+        mock_get.assert_called_once_with(temperature=0.0)
+
+    def test_dict_format_history_from_checkpoint(self):
+        """checkpoint 恢复后 history 元素为 dict（非 Pydantic）时兼容。"""
+        state = _make_state(
+            history=[{
+                "round_number": 1,
+                "thesis_before": "旧论题",
+                "critique": "旧批判",
+                "user_response": "旧回应",
+                "draft_thesis": "旧草稿",
+                "confirmed_thesis": "旧确认",
+                "thesis_after": "旧拼合",
+                "continue_debate": True,
+                "referee_reasoning": "理由",
+            }],
+            round=2,
+            _critique="c", _user_response="u",
+            _draft_thesis="d", _confirmed_thesis="cf",
+            current_thesis="旧拼合",
+        )
+        judgment = self._make_judgment(round=2, new_thesis="新拼合")
+        model = _make_mock_referee_model(judgment)
+        result = referee_deliberate_node(state, model=model)
+
+        # 验证 dict 格式的 history 被正确追加
+        assert len(result["history"]) == 2
+        assert result["history"][1].round_number == 2
+
+    def test_get_initial_thesis_from_dict_history(self):
+        """_get_initial_thesis 在 history[0] 为 dict 时正确回退。"""
+        from agents.referee import _get_initial_thesis
+
+        state = _make_state(
+            history=[{
+                "round_number": 1,
+                "thesis_before": "初始论题（dict格式）",
+                "critique": "c", "user_response": "u",
+                "draft_thesis": "d", "confirmed_thesis": "cf",
+                "thesis_after": "后", "continue_debate": True,
+                "referee_reasoning": "r",
+            }],
+            current_thesis="当前论题",
+        )
+        result = _get_initial_thesis(state)
+        assert result == "初始论题（dict格式）"
+
+    def test_get_initial_thesis_empty_history(self):
+        """_get_initial_thesis 在 history 为空时返回 current_thesis。"""
+        from agents.referee import _get_initial_thesis
+
+        state = _make_state(history=[], current_thesis="唯一论题")
+        result = _get_initial_thesis(state)
+        assert result == "唯一论题"
+
+    def test_large_round_number(self):
+        """大轮次编号（9999）不导致崩溃。"""
+        state = _make_state(
+            round=9999,
+            _critique="c", _user_response="u",
+            _draft_thesis="d", _confirmed_thesis="cf",
+        )
+        judgment = self._make_judgment(round=9999)
+        model = _make_mock_referee_model(judgment)
+        result = referee_deliberate_node(state, model=model)
+
+        assert result["status"] == "opponent_computing"
+        record = result["history"][0]
+        assert record.round_number == 9999

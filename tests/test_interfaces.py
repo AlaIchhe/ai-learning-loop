@@ -13,6 +13,7 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
 from agents.opponent import opponent_compute_node, opponent_interact_node
@@ -178,11 +179,26 @@ class TestNodeOutputInterface:
 
     def test_all_nodes_produce_same_message_structure(self):
         """所有节点产生的消息都包含 role/content/round。"""
-        state = _make_state()
+        state = _make_state(
+            _critique="c", _user_response="u",
+            _draft_thesis="d", _confirmed_thesis="cf",
+        )
         model = _make_mock_model("测试内容")
+
+        # 模拟 referee 的 structured_output
+        mock_ref_model = MagicMock()
+        structured_mock = MagicMock()
+        structured_mock.invoke.return_value = RefereeJudgment(
+            round=1, continue_debate=True,
+            new_thesis="新论题", reasoning="理由",
+        )
+        mock_ref_model.with_structured_output.return_value = structured_mock
+        mock_ref_model.invoke.return_value = MagicMock(content="总结")
 
         nodes = [
             opponent_compute_node(state, model=model),
+            presenter_compute_node(state, model=model),
+            referee_deliberate_node(state, model=mock_ref_model),
         ]
 
         for node_result in nodes:
@@ -449,3 +465,143 @@ class TestRoutingInterface:
             state = _make_state(status=s)  # type: ignore[arg-type]
             result = _route_after_referee(state)
             assert result in (END, "next_round"), f"{s} → {result}"
+
+
+# =============================================================================
+# Prompt 模板扩展测试
+# =============================================================================
+
+
+class TestPromptTemplatesExtended:
+    """Prompt 模板函数的边界条件。"""
+
+    def test_referee_prompt_with_history_summary(self):
+        """referee_prompt 包含 history_summary 时格式正确。"""
+        result = referee_prompt(
+            current_thesis="论题",
+            draft_thesis="草稿",
+            confirmed_thesis="确认",
+            round_num=3,
+            history_summary="第1轮: A→B\n第2轮: B→C",
+        )
+        assert "第 3 轮" in result
+        assert "前轮摘要" in result
+        assert "第1轮: A→B" in result
+        assert "高度重复" in result  # 注示文本
+
+    def test_referee_prompt_without_history_summary(self):
+        """referee_prompt 不含 history_summary 时不应有前轮摘要。"""
+        result = referee_prompt(
+            current_thesis="论题",
+            draft_thesis="草稿",
+            confirmed_thesis="确认",
+            round_num=1,
+        )
+        assert "前轮摘要" not in result
+        assert "第 1 轮" in result
+
+    def test_opponent_prompt_includes_thesis(self):
+        """opponent_prompt 包含完整论题文本。"""
+        result = opponent_prompt("AI 应受严格监管。")
+        assert "AI 应受严格监管。" in result
+        assert len(result) > 20
+
+    def test_presenter_prompt_includes_all_context(self):
+        """presenter_prompt 包含原始论题、批判和用户回应。"""
+        result = presenter_prompt("论题A", "批判B", "回应C")
+        assert "论题A" in result
+        assert "批判B" in result
+        assert "回应C" in result
+
+
+# =============================================================================
+# State 边界测试
+# =============================================================================
+
+
+class TestStateEdgeCases:
+    """AgentState 和路由的边界值测试。"""
+
+    def test_missing_status_key_raises(self):
+        """state 缺少 status 键时 _route_after_referee 抛出 KeyError。"""
+        state: dict = {"current_thesis": "x", "round": 1, "messages": [], "history": []}
+        with pytest.raises(KeyError):
+            _route_after_referee(state)  # type: ignore[arg-type]
+
+    def test_invalid_status_defaults_to_next_round(self):
+        """未知 status 值默认路由到 'next_round'。"""
+        state = _make_state(status="totally_invalid_status")  # type: ignore[arg-type]
+        assert _route_after_referee(state) == "next_round"
+
+
+# =============================================================================
+# Pydantic 扩展边界测试
+# =============================================================================
+
+
+class TestSerializationEdgeCases:
+    """Pydantic 模型的边界值与扩展行为。"""
+
+    def test_message_model_min_length_strings(self):
+        """Message 最短合法字段（单字符 content）。"""
+        msg = Message(role="user", content="x", round=1)
+        assert msg.content == "x"
+        assert msg.role == "user"
+        d = msg.model_dump()
+        restored = Message(**d)
+        assert restored.content == "x"
+
+    def test_referee_judgment_min_length_fields(self):
+        """RefereeJudgment 单字符 new_thesis/reasoning 通过验证。"""
+        j = RefereeJudgment(
+            round=1,
+            continue_debate=True,
+            new_thesis="x",
+            reasoning="y",
+        )
+        assert j.new_thesis == "x"
+        assert j.reasoning == "y"
+
+    def test_round_record_constructed_from_dict(self):
+        """RoundRecord 可从普通字典构造（模拟 checkpoint 恢复）。"""
+        d = {
+            "round_number": 2,
+            "thesis_before": "前",
+            "critique": "批判",
+            "user_response": "回应",
+            "draft_thesis": "草稿",
+            "confirmed_thesis": "确认",
+            "thesis_after": "后",
+            "continue_debate": True,
+            "referee_reasoning": "理由",
+        }
+        record = RoundRecord(**d)
+        assert record.round_number == 2
+        assert record.thesis_before == "前"
+        assert record.thesis_after == "后"
+        # model_dump 往返
+        restored = RoundRecord(**record.model_dump())
+        assert restored.thesis_before == "前"
+
+    def test_debate_result_roundtrip(self):
+        """DebateResult model_dump → 重建验证。"""
+        record = RoundRecord(
+            round_number=1,
+            thesis_before="A", critique="B",
+            user_response="C", draft_thesis="D",
+            confirmed_thesis="E", thesis_after="F",
+            continue_debate=False, referee_reasoning="完成",
+        )
+        original = DebateResult(
+            initial_thesis="A",
+            final_thesis="F",
+            total_rounds=1,
+            rounds=[record],
+            summary="演化完成。",
+        )
+        restored = DebateResult(**original.model_dump())
+        assert restored.initial_thesis == original.initial_thesis
+        assert restored.final_thesis == original.final_thesis
+        assert restored.total_rounds == original.total_rounds
+        assert len(restored.rounds) == 1
+        assert restored.rounds[0].thesis_before == "A"
