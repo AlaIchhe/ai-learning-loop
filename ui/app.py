@@ -41,6 +41,7 @@ from core.logging import TraceLogger, trace_id_context
 from core.model import has_configured_api_key
 from core.schemas import RefereeJudgment
 from core.state import AgentState, make_initial_state
+from ui.style import inject_global_css, typing_cursor_html
 from workflow.graph import build_graph
 
 # =============================================================================
@@ -391,6 +392,8 @@ def _execute_stream_start(tab_id: str) -> None:
     initial_thesis = session["initial_thesis"]
     model_config = session.get("model_config", {})
 
+    st.toast("⚔️ 辩论已开始", icon="🚀")
+
     _ensure_shared_graph()
     graph = st.session_state["graph"]
     thread_id = str(uuid4())
@@ -415,6 +418,8 @@ def _execute_stream_resume(tab_id: str, user_value: str) -> None:
     """从中断点流式恢复执行。"""
     sessions = st.session_state["sessions"]
     sessions[tab_id].pop("pending_resume", None)
+
+    st.toast("✅ 已从错误中恢复")
 
     _ensure_shared_graph()
     graph = st.session_state["graph"]
@@ -460,7 +465,10 @@ def _run_stream(graph, input_data, config: RunnableConfig) -> None:
                         if content:
                             accumulated += content
                             header = f"💭 **{_node_label(current_node or '')}** 正在生成…\n\n"
-                            token_placeholder.markdown(header + accumulated)
+                            token_placeholder.markdown(
+                                header + accumulated + typing_cursor_html(),
+                                unsafe_allow_html=True,
+                            )
                 elif mode == "updates":
                     accumulated = ""
                     token_placeholder.empty()
@@ -655,6 +663,8 @@ def _render_conversation(messages: list[dict]) -> None:
         st.info("辩论尚未开始，请在标签页中输入论题并点击「开始辩论」。")
         return
 
+    from datetime import datetime
+
     role_meta = {
         "system": ("📋", "系统"),
         "opponent": ("⚔️", "批判者"),
@@ -668,9 +678,20 @@ def _render_conversation(messages: list[dict]) -> None:
         emoji, label = role_meta.get(role, ("❓", role))
         round_num = msg.get("round", "?")
 
+        # 时间戳（兼容旧消息无 timestamp 字段）
+        timestamp = msg.get("timestamp")
+        time_str = ""
+        if isinstance(timestamp, (int, float)):
+            time_str = datetime.fromtimestamp(timestamp).strftime("%H:%M")
+
         with st.chat_message(label, avatar=emoji):
             st.caption(f"第 {round_num} 轮 · {label}")
             st.markdown(str(msg.get("content", "")))
+            if time_str:
+                st.markdown(
+                    f'<span class="chat-timestamp">{time_str}</span>',
+                    unsafe_allow_html=True,
+                )
 
 
 def _render_judgment(judgment: RefereeJudgment | dict | None) -> None:
@@ -888,7 +909,18 @@ def _render_tab_content(tab_id: str) -> None:
             st.info("等待裁判审议…")
 
         if status == "done":
+            # 学习完成庆祝（每标签页仅触发一次）
+            done_key = f"_done_celebrated_{tab_id}"
+            if not st.session_state.get(done_key):
+                st.toast("🎉 学习会话完成！")
+                st.balloons()
+                st.session_state[done_key] = True
             _render_final_result(history, state.get("final_result", ""))
+        else:
+            # 非 done 状态时清除庆祝标记，以便下次完成时再次触发
+            done_key = f"_done_celebrated_{tab_id}"
+            if st.session_state.get(done_key):
+                st.session_state.pop(done_key, None)
 
     # 重置按钮
     if st.button("🔄 重置此辩论", key=f"reset_{tab_id}"):
@@ -906,6 +938,9 @@ def main() -> None:
 
     st.title("🎓 多智能体论题演化系统")
     st.caption("批判者审视 · 陈述者精确化 · 你确认 · 裁判拼合演化")
+
+    # 注入全局 CSS + 自动滚动 JS（同一 session 仅执行一次）
+    inject_global_css()
 
     _ensure_default_tab()
 

@@ -1,0 +1,282 @@
+/* =============================================================================
+   AI Learning Loop — 全局样式表
+   灵感来源: Claude (Anthropic), Linear, Stripe
+   设计原则: 克制、聚焦内容、微交互增强
+   ============================================================================= */
+
+/* ---------------------------------------------------------------------------
+   0. 字体引入 —— Inter 西文 + PingFang SC 中文回退
+   --------------------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+   1. 主内容区 —— 居中约束（Claude 风格）
+   --------------------------------------------------------------------------- */
+.main .block-container {
+    max-width: 900px;
+    padding-top: 1.5rem;
+    padding-bottom: 3rem;
+}
+
+/* ---------------------------------------------------------------------------
+   2. 标题区域
+   --------------------------------------------------------------------------- */
+h1 {
+    font-weight: 700 !important;
+    letter-spacing: -0.02em;
+}
+
+/* ---------------------------------------------------------------------------
+   3. 消息气泡 —— 角色语义色
+   --------------------------------------------------------------------------- */
+
+/* 通用消息容器 */
+div[data-testid="stChatMessage"] {
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    transition: box-shadow 0.15s ease;
+}
+
+/* opponent（批判者）—— 淡红暖调 */
+div[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatar"]:first-child) {
+    /* Streamlit 的 chat_message avatar 角色映射难以用纯 CSS 选择器区分，
+       通过 content 角色名称间接标识 —— 见下方 role-content 规则 */
+}
+
+/* 通用 hover 微交互 */
+div[data-testid="stChatMessage"]:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ---------------------------------------------------------------------------
+   4. 按钮 —— hover 上浮 + 阴影过渡（Stripe 灵感）
+   --------------------------------------------------------------------------- */
+.stButton > button {
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
+}
+
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.stButton > button:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* Primary 按钮（type="primary"） */
+.stButton > button[kind="primary"] {
+    background-color: #2563eb;
+    color: white;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background-color: #1d4ed8;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+   5. 文本输入框 —— focus 高亮环
+   --------------------------------------------------------------------------- */
+.stTextArea textarea {
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    font-size: 0.95rem;
+}
+
+.stTextArea textarea:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    outline: none;
+}
+
+.stTextInput input {
+    border-radius: 8px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stTextInput input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    outline: none;
+}
+
+/* ---------------------------------------------------------------------------
+   6. Expander —— 圆角 + hover 过渡
+   --------------------------------------------------------------------------- */
+div[data-testid="stExpander"] {
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+div[data-testid="stExpander"]:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+div[data-testid="stExpander"] details summary {
+    font-weight: 600;
+    font-size: 0.9rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   7. 侧边栏
+   --------------------------------------------------------------------------- */
+section[data-testid="stSidebar"] {
+    border-right: 1px solid #e2e8f0;
+}
+
+section[data-testid="stSidebar"] .block-container {
+    padding-top: 1.25rem;
+}
+
+section[data-testid="stSidebar"] h1 {
+    font-size: 1.3rem !important;
+}
+
+/* 侧边栏滑块标签紧凑化 */
+section[data-testid="stSidebar"] .stSlider label {
+    font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
+   8. 标签页
+   --------------------------------------------------------------------------- */
+button[data-testid="stBaseButton-headerNoPadding"] {
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+}
+
+div[data-testid="stTabs"] {
+    margin-top: 0.5rem;
+}
+
+/* ---------------------------------------------------------------------------
+   9. Metric 组件（终局统计）
+   --------------------------------------------------------------------------- */
+div[data-testid="stMetric"] {
+    background-color: rgba(37, 99, 235, 0.04);
+    border-radius: 10px;
+    padding: 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+
+div[data-testid="stMetric"] label {
+    font-weight: 600 !important;
+    font-size: 0.8rem !important;
+    color: #64748b !important;
+}
+
+/* ---------------------------------------------------------------------------
+   10. Divider 美化
+   --------------------------------------------------------------------------- */
+hr {
+    margin: 1rem 0;
+    border-color: #e2e8f0;
+}
+
+/* ---------------------------------------------------------------------------
+   11. 滚动条美化（WebKit）
+   --------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+}
+
+/* ---------------------------------------------------------------------------
+   12. 打字动画 —— 闪烁光标
+   --------------------------------------------------------------------------- */
+@keyframes blink-cursor {
+    0%, 50% {
+        opacity: 1;
+    }
+    51%, 100% {
+        opacity: 0;
+    }
+}
+
+.typing-cursor {
+    display: inline;
+    color: #2563eb;
+    font-weight: 700;
+    animation: blink-cursor 1s step-end infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   13. 消息时间戳
+   --------------------------------------------------------------------------- */
+.chat-timestamp {
+    display: block;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 0.35rem;
+    font-weight: 400;
+}
+
+/* ---------------------------------------------------------------------------
+   14. 隐藏 Streamlit 默认工具栏（Deploy/Hamburger）
+   --------------------------------------------------------------------------- */
+div[data-testid="stToolbar"] {
+    display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   15. 暗色模式专属覆盖
+   --------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+    .typing-cursor {
+        color: #60a5fa;
+    }
+
+    .chat-timestamp {
+        color: #64748b;
+    }
+
+    div[data-testid="stExpander"] {
+        border-color: #334155;
+    }
+
+    div[data-testid="stExpander"]:hover {
+        border-color: #475569;
+    }
+
+    div[data-testid="stMetric"] {
+        background-color: rgba(59, 130, 246, 0.08);
+        border-color: #334155;
+    }
+
+    hr {
+        border-color: #334155;
+    }
+
+    section[data-testid="stSidebar"] {
+        border-right-color: #334155;
+    }
+}

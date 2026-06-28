@@ -107,13 +107,17 @@ streamlit run ui/app.py
 
 **Per-tab 模型配置隔离**：每个标签页在启动时冻结当前的模型配置（模型名、端点、温度、最大轮次）。侧边栏修改仅对新启动的辩论生效，已运行的标签页不受影响。不同标签页可使用不同模型供应商进行对比实验。
 
-**流式输出**：LLM 响应以 token 级别实时流式展示，无需等待完整生成即可看到 AI 的思考过程。
+**流式输出 + 打字动画**：LLM 响应以 token 级别实时流式展示，带闪烁光标 `▍` 模拟打字效果，无需等待完整生成即可看到 AI 的思考过程。
 
 **温度调节**：侧边栏滑块（0.0–1.5，默认 0.7）控制提问者和精确化者的创造性程度，适应不同学习风格。
 
 **最大轮次安全阀**：侧边栏滑块（1–20，默认 10）设置辩论轮次上限，防止异常状态下无限循环消耗 API 费用。
 
 **错误边界**：流式执行异常时展示分类的中文错误提示（鉴权/超时/速率限制/网络/解析异常），可展开技术详情，支持一键重试（利用 checkpoint 从中断点恢复）。
+
+**主题系统**：学术蓝品牌主题，支持明/暗色模式自动切换（跟随 OS 设置）。消息气泡带角色区分配色和时间戳，按钮有 hover 微交互动画。
+
+**自动滚动 + Toast 通知**：新消息自动平滑滚动到底部，不会干扰手动阅读历史记录。辩论开始、恢复和完成时显示 Toast 通知，学习完成时播放气球庆祝动画。
 
 ### API Key 配置方式
 
@@ -201,7 +205,11 @@ ai-learning-loop/
 ├── workflow/                # 编排层
 │   └── graph.py             # LangGraph 图组装（8 节点）、条件路由、export_graph()
 ├── ui/                      # 展现层
-│   └── app.py               # Streamlit 界面：多标签页 + 流式输出 + 温度调节；复用 setup_environment + has_configured_api_key
+│   ├── app.py               # Streamlit 界面：多标签页 + 流式输出 + 温度调节；复用 setup_environment + has_configured_api_key
+│   ├── style.py             # 全局样式注入：inject_global_css() 加载 CSS + 自动滚动 JS + typing_cursor_html()
+│   └── style.css            # 主题样式表（Inter 字体、消息气泡、按钮动画、暗色模式、滚动条美化）
+├── .streamlit/
+│   └── config.toml          # Streamlit 主题配置（明/暗双主题、学术蓝品牌色、隐藏默认菜单）
 ├── tests/                   # 测试（Mock LLM，无需真实 API，154 个用例）
 │   ├── helpers.py           # 共享工厂函数（make_state / make_mock_model / make_initial_state）
 │   ├── mock_nodes.py        # 共享 Mock Agent 节点（含 interrupt()）
@@ -236,6 +244,7 @@ ai-learning-loop/
 | `workflow/` | 状态流转、条件路由、节点编排 | 不得包含 LLM 调用、不得配置 interrupt_before |
 | `ui/` | 渲染数据、收集输入、检测中断并展示对应 UI | 不得修改 graph state、不得包含业务逻辑 |
 
+- **UI 样式分离**：`ui/style.css` 定义全局视觉规则（消息气泡、按钮动画、暗色模式等），`ui/style.py` 封装注入逻辑（CSS 加载 + 自动滚动 JS + 打字光标），`ui/app.py` 仅调用 `inject_global_css()`，保持渲染层纯净
 - **统一环境初始化**：`core/env.py` 的 `setup_environment()` 消除 `run.py`、`ui/app.py` 和 `scripts/*.py` 中的分散初始化代码重复
 - **模型工厂**：`get_chat_model()` 读取环境变量创建 LLM 实例，支持任意 OpenAI 兼容供应商。`load_model_config()` 将 env 解析为 `ModelConfig`，`has_configured_api_key()` 集中判断是否配置了真实 API Key（占位符不算）。模型默认开启 `streaming=True` 以支持 token 级流式输出
 - **State 工厂与验证**：`make_initial_state(thesis, *, agent_temperature=0.7, model_name="", model_base_url="", max_rounds=10)` 是唯一权威的初始状态构造入口（UI、脚本、测试均复用）。`validate_state_shape(state)` 在 workflow 入口提供运行时校验，不完整状态在调度层早失败

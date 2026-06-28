@@ -72,8 +72,16 @@ def make_message(role: str, content: str, round_num: int) -> dict[str, object]:
         role: 消息角色（opponent / presenter / referee / user）。
         content: 消息正文。
         round_num: 所属轮次编号。
+
+    返回的 dict 包含 timestamp 字段（float, time.time()），
+    用于 UI 层在消息气泡底部显示时间。
     """
-    return {"role": role, "content": content, "round": round_num}
+    return {
+        "role": role,
+        "content": content,
+        "round": round_num,
+        "timestamp": time.time(),
+    }
 
 
 # =============================================================================
