@@ -47,6 +47,7 @@ def opponent_compute_node(
         ),
         model_name=state.get("_model_name") or None,
         model_base_url=state.get("_model_base_url") or None,
+        model_api_key=state.get("_model_api_key") or None,
     )
 
     return {

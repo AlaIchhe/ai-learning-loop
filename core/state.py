@@ -96,11 +96,21 @@ class AgentState(TypedDict):
     opponent_compute 读取后传入 opponent_prompt()，由 _next_round_node 清除。"""
 
     _model_name: str
-    """[持久] Per-tab 模型名覆盖。在辩论启动时从侧边栏捕获，优先级高于全局环境变量。
-    由 make_initial_state() 注入，agent compute 节点读取后传给 get_chat_model()。"""
+    """[持久] Per-tab 模型名覆盖。在辩论启动时从侧边栏/ModelStore 捕获，
+    优先级高于全局环境变量。由 make_initial_state() 注入，agent compute 节点
+    读取后传给 get_chat_model()。空串表示回退到全局配置。"""
 
     _model_base_url: str
-    """[持久] Per-tab 模型端点覆盖。在辩论启动时从侧边栏捕获。"""
+    """[持久] Per-tab 模型端点覆盖。空串表示回退到全局配置。"""
+
+    _model_api_key: str
+    """[持久] Per-tab API Key 覆盖。空串表示回退到全局配置。
+    与 _model_name/_model_base_url 一起在辩论启动时冻结，实现真正的 per-tab 隔离。"""
+
+    _model_json_mode: bool
+    """[持久] Per-tab 是否对 Referee 使用 JSON-mode。
+    由 ModelProfile.supports_structured_output 取反冻结。
+    DeepSeek 等不支持 with_structured_output 的提供商自动启用。"""
 
     max_rounds: int
     """[持久] 最大轮次安全阀。达到此轮次后 _route_after_referee 强制终止辩论。
@@ -128,6 +138,8 @@ def make_initial_state(
     agent_temperature: float = 0.7,
     model_name: str = "",
     model_base_url: str = "",
+    model_api_key: str = "",
+    model_json_mode: bool = False,
     max_rounds: int = 10,
 ) -> AgentState:
     """构造工作流入口使用的完整初始 AgentState。
@@ -139,6 +151,8 @@ def make_initial_state(
         agent_temperature: Opponent/Presenter 的 LLM 温度。
         model_name: Per-tab 模型名覆盖（空串 = 使用全局环境变量）。
         model_base_url: Per-tab 端点覆盖（空串 = 使用全局环境变量）。
+        model_api_key: Per-tab API Key 覆盖（空串 = 使用全局环境变量）。
+        model_json_mode: Per-tab 是否强制 Referee 使用 JSON-mode。
         max_rounds: 最大轮次安全阀（默认 10）。
     """
     return cast(AgentState, {
@@ -156,6 +170,8 @@ def make_initial_state(
         "_improvement_hint": "",
         "_model_name": model_name,
         "_model_base_url": model_base_url,
+        "_model_api_key": model_api_key,
+        "_model_json_mode": model_json_mode,
         "max_rounds": max_rounds,
     })
 

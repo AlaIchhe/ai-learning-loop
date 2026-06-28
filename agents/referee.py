@@ -69,17 +69,21 @@ def referee_deliberate_node(
         - final_result: str            终局总结报告（仅 done 时）
         - _improvement_hint: str       下一轮批判方向指引（仅 continue 时）
     """
+    # 决定结构化输出策略：显式 json_mode 参数优先级最高；其次看 per-tab 冻结配置
+    effective_json_mode = json_mode or bool(state.get("_model_json_mode", False))
+
     if model is None:
         model = get_chat_model(
             temperature=0.0,
             model_name=state.get("_model_name") or None,
             base_url=state.get("_model_base_url") or None,
+            api_key=state.get("_model_api_key") or None,
         )
 
     # --- Step 1: 获取 RefereeJudgment ---
     history_summary = _build_history_summary(state)
 
-    if json_mode:
+    if effective_json_mode:
         judgment = _judge_via_json_mode(
             model, state, history_summary,
         )

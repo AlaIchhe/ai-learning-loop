@@ -117,40 +117,57 @@ class TestModuleImports:
 
 
 class TestSidebarConfigSmoke:
-    """侧边栏配置写入行为。"""
+    """侧边栏模型选择与 ModelStore 交互行为。"""
 
-    def test_sidebar_api_key_override_updates_session_and_env(self):
-        """手动覆盖 API Key 时，应同步 session_state 和 LLM/OpenAI env。"""
-        fake_st = _FakeStreamlit(text_inputs=["sk-override-key"])
+    def test_capture_model_config_reads_from_store(self):
+        """_capture_model_config() 应从 ModelStore 读取活跃模型配置。"""
+        # 使用真实的 ModelStore，预置一个 deepseek-chat 配置
+        from core.model_store import ModelStore
+        fake_st = _FakeStreamlit()
         app = _import_ui_app_with_streamlit(fake_st)
-        render_sidebar = app._render_sidebar
 
-        env = {
-            "LLM_MODEL": "deepseek-chat",
-            "LLM_API_KEY": "sk-existing-key",
-        }
-        with patch.dict(os.environ, env, clear=True):
-            render_sidebar()
-            assert os.environ["LLM_API_KEY"] == "sk-override-key"
-            assert os.environ["OPENAI_API_KEY"] == "sk-override-key"
-
-        assert fake_st.session_state["api_key"] == "sk-override-key"
-
-    def test_sidebar_model_settings_update_env_and_rerun(self):
-        """无 .env 配置时，应用高级模型设置应写入模型 env 并 rerun。"""
-        fake_st = _FakeStreamlit(
-            text_inputs=["", "custom-model", "https://example.com/v1"],
-            buttons=[True, False, False],
+        store = ModelStore()
+        entry_id = store.add_provider(
+            "deepseek",
+            api_key="sk-test-key-123",
+            status="ok",
         )
+        models = store.list_models(entry_id)
+        store.set_active_profile(entry_id, models[0])  # deepseek-chat
+
+        fake_st.session_state["model_store"] = store
+        cfg = app._capture_model_config()
+        assert cfg["model_name"] == "deepseek-chat"
+        assert "deepseek" in (cfg["base_url"] or "")
+        assert cfg["api_key"] == "sk-test-key-123"
+        assert cfg["json_mode"] is True  # deepseek 不支持 structured output
+
+    def test_capture_model_config_returns_empty_when_no_active(self):
+        """无活跃模型时返回空配置，make_initial_state 回退到 env 默认。"""
+        from core.model_store import ModelStore
+        fake_st = _FakeStreamlit()
         app = _import_ui_app_with_streamlit(fake_st)
-        render_sidebar = app._render_sidebar
+        fake_st.session_state["model_store"] = ModelStore()  # 空 store
+        cfg = app._capture_model_config()
+        assert cfg["model_name"] == ""
+        assert cfg["base_url"] == ""
+        assert cfg["api_key"] == ""
+        assert cfg["json_mode"] is False
 
-        with patch.dict(os.environ, {}, clear=True):
-            render_sidebar()
-            assert os.environ["LLM_MODEL"] == "custom-model"
-            assert os.environ["LLM_BASE_URL"] == "https://example.com/v1"
+    def test_has_active_model_reflects_store_state(self):
+        """_has_active_model() 根据 store 是否有活跃配置返回布尔。"""
+        from core.model_store import ModelStore
+        fake_st = _FakeStreamlit()
+        app = _import_ui_app_with_streamlit(fake_st)
 
-        assert fake_st.rerun_called is True
+        fake_st.session_state["model_store"] = ModelStore()
+        assert app._has_active_model() is False
+
+        store = ModelStore()
+        eid = store.add_provider("deepseek", api_key="sk-x", status="ok")
+        store.set_active_profile(eid, "deepseek-chat")
+        fake_st.session_state["model_store"] = store
+        assert app._has_active_model() is True
 
 
 # =============================================================================

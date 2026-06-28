@@ -3,12 +3,12 @@ Streamlit 展现层 —— 纯渲染与输入收集。
 
 原则：
 1. UI 层不包含任何业务逻辑。所有状态变更由 LangGraph 图驱动。
-2. st.session_state 仅管理 UI 会话元数据（thread_id、api_key），
+2. st.session_state 仅管理 UI 会话元数据（thread_id、model_store），
    辩论状态完全存储在 LangGraph checkpointer 中。
 3. 使用动态 interrupt() + Command(resume=...) 实现人工介入。
 4. 每个渲染函数只读取数据并绘制，不修改 graph state。
 5. 多标签页：一个共享 graph + MemorySaver 服务多个独立辩论会话。
-6. Per-tab 模型配置：每个标签页在启动时捕获侧边栏的模型配置，
+6. Per-tab 模型配置：每个标签页在启动时从 ModelStore 捕获当前活跃模型配置，
    后续该标签页的所有 LLM 调用使用启动时的配置，不受侧边栏修改影响。
 """
 
@@ -23,10 +23,9 @@ from core.env import setup_environment
 _project_root = Path(__file__).resolve().parent.parent
 setup_environment(_project_root, verbose=False)
 
-import os
 import traceback
+import uuid
 from typing import cast
-from uuid import uuid4
 
 import streamlit as st
 from langchain_core.runnables import RunnableConfig
@@ -38,9 +37,11 @@ from agents.opponent import opponent_compute_node, opponent_interact_node
 from agents.presenter import presenter_compute_node, presenter_interact_node
 from agents.referee import referee_deliberate_node
 from core.logging import TraceLogger, trace_id_context
-from core.model import has_configured_api_key
+from core.model import load_model_config
+from core.model_store import ModelProfile, ModelStore, ProviderEntry
 from core.schemas import RefereeJudgment
 from core.state import AgentState, make_initial_state
+from ui.model_settings import MODEL_CONFIG_FILENAME, render_model_settings_page
 from ui.style import inject_global_css, typing_cursor_html
 from workflow.graph import build_graph
 
@@ -56,116 +57,147 @@ st.set_page_config(
 
 
 # =============================================================================
-# 侧边栏 —— 系统配置（全局共享）
+# ModelStore 管理
 # =============================================================================
 
 
-def _apply_api_key_override(api_key: str) -> None:
-    """应用侧边栏临时 API Key 覆盖（仅当前进程/会话有效）。
+def _config_path() -> Path:
+    return _project_root / MODEL_CONFIG_FILENAME
 
-    API Key 保持全局共享（同一用户的密钥），但模型名和端点可按标签页隔离。
+
+def _get_store() -> ModelStore:
+    """获取或初始化持久化的 ModelStore。
+
+    首次调用时：若 .model-config.json 存在则加载；否则从 .env 迁移并保存。
     """
-    st.session_state["api_key"] = api_key
-    os.environ["LLM_API_KEY"] = api_key
-    os.environ["OPENAI_API_KEY"] = api_key
+    if "model_store" not in st.session_state:
+        path = _config_path()
+        if path.exists():
+            st.session_state["model_store"] = ModelStore.load(path)
+        else:
+            store = ModelStore.migrate_from_env(load_model_config())
+            store.save(path)
+            st.session_state["model_store"] = store
+    return st.session_state["model_store"]
 
 
-def _apply_model_override(model: str, base_url: str) -> None:
-    """应用侧边栏临时模型端点覆盖（仅影响新启动的辩论）。
+def _save_store() -> None:
+    store = st.session_state.get("model_store")
+    if isinstance(store, ModelStore):
+        store.save(_config_path())
 
-    已在运行的标签页使用其启动时捕获的配置，不受此次修改影响。
+
+def _capture_model_config() -> dict:
+    """捕获当前活跃模型配置，供新标签页在启动时冻结。
+
+    返回 dict 包含 model_name / base_url / api_key / json_mode 四个字段，
+    后续直接传入 make_initial_state()。
     """
-    os.environ["LLM_MODEL"] = model
-    os.environ["LLM_BASE_URL"] = base_url
-
-
-def _capture_model_config() -> dict[str, str]:
-    """捕获当前有效的模型配置，供新标签页在启动时冻结。
-
-    返回的 dict 存入 per-tab session，后续该标签页的所有 LLM 调用使用此配置。
-    """
-    config: dict[str, str] = {
-        "model_name": os.getenv("LLM_MODEL", ""),
-        "base_url": os.getenv("LLM_BASE_URL", ""),
+    store = _get_store()
+    profile: ModelProfile | None = store.get_active_profile()
+    if profile is None:
+        return {
+            "model_name": "",
+            "base_url": "",
+            "api_key": "",
+            "json_mode": False,
+        }
+    entry = store.providers[profile.provider_entry_id]
+    return {
+        "model_name": profile.model_name,
+        "base_url": entry.effective_base_url() or "",
+        "api_key": profile.api_key or "",
+        "json_mode": not profile.supports_structured_output,
     }
-    # 侧边栏临时覆盖的 API key 也一并捕获（用于回退）
-    api_key = st.session_state.get("api_key", "")
-    if api_key:
-        config["api_key"] = api_key
-    return config
+
+
+def _has_active_model() -> bool:
+    """是否已有配置好的可用模型。"""
+    return _get_store().get_active_profile() is not None
+
+
+# =============================================================================
+# 共享侧边栏 —— 两个页面共用
+# =============================================================================
 
 
 def _render_sidebar() -> None:
-    """渲染侧边栏：API Key 配置、温度调节等全局设置。"""
-    # ---- 读取 .env 中的配置状态 ----
-    env_model = os.getenv("LLM_MODEL", "")
-    env_base = os.getenv("LLM_BASE_URL", "")
-    env_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    env_configured = has_configured_api_key()
+    """渲染侧边栏：导航、模型选择器、温度调节。
 
-    if not env_configured or not env_model:
-        provider_label = ""
-    elif not env_base:
-        provider_label = "OpenAI"
-    elif "deepseek" in env_base.lower():
-        provider_label = "DeepSeek"
-    elif "siliconflow" in env_base.lower():
-        provider_label = "硅基流动"
-    elif "ollama" in env_base.lower() or "localhost" in env_base.lower():
-        provider_label = "Ollama (本地)"
-    else:
-        provider_label = "自定义"
-
+    注意：此函数在两个页面的公共区域调用（pg.run() 之前），
+    因此两个页面共享同一份侧边栏内容。
+    """
     with st.sidebar:
-        st.title("⚙️ 配置")
+        # 导航菜单由 st.navigation 自动注入（此处仅添加导航下方的内容）
+        st.divider()
 
-        # ---- API Key 区域 ----
-        if env_configured:
-            masked_key = env_key[:12] + "..." + env_key[-4:] if len(env_key) > 16 else "****"
-            st.success("✅ 已从 .env 加载配置")
-            st.caption(f"供应商: {provider_label}")
-            st.caption(f"模型: {env_model}")
-            st.caption(f"Key: {masked_key}")
+        # ---- 当前模型选择 ----
+        st.caption("🔌 当前模型")
+        store = _get_store()
+        profile = store.get_active_profile()
 
-            with st.expander("🔧 手动覆盖 API Key（可选）"):
-                st.caption("输入后将覆盖 .env 中的 Key，仅本次会话有效。")
-                api_key = st.text_input(
-                    "API Key（覆盖 .env）",
-                    type="password",
-                    key="api_key_override",
-                    help="支持 DeepSeek / OpenAI / 硅基流动 等。",
-                )
-                if api_key:
-                    _apply_api_key_override(api_key)
-                    st.info("已覆盖，本次会话生效。")
+        configured = {k: v for k, v in store.providers.items() if v.status == "ok"}
+
+        if not configured:
+            st.warning("尚未配置可用模型。")
+            if st.button("🔧 前往模型设置", use_container_width=True):
+                st.switch_page(st.Page(render_model_settings_page, title="模型设置", icon="🔧"))
         else:
-            st.warning("⚠️ 未检测到 .env 配置")
-            st.caption("推荐在项目根目录创建 `.env` 文件配置 API Key。")
-            api_key = st.text_input(
-                "LLM API Key",
-                type="password",
-                value=st.session_state.get("api_key", ""),
-                help="支持 DeepSeek / OpenAI / 硅基流动 等。仅本次会话有效。",
-            )
-            if api_key:
-                _apply_api_key_override(api_key)
+            # Provider 下拉选择
+            entry_ids = list(configured.keys())
+            entry_labels = {
+                eid: _format_entry_label(eid, configured[eid]) for eid in entry_ids
+            }
 
-            with st.expander("🛠️ 高级模型设置（可选）"):
-                st.caption("自定义模型与端点，覆盖默认值。")
-                custom_model = st.text_input(
-                    "模型名", value="deepseek-chat", key="custom_model",
+            # 确定当前选中的 provider
+            active_eid = None
+            active_model = None
+            if profile is not None:
+                active_eid = profile.provider_entry_id
+                active_model = profile.model_name
+            if active_eid not in configured:
+                active_eid = entry_ids[0]
+
+            selected_provider_idx = st.selectbox(
+                "提供商",
+                range(len(entry_ids)),
+                index=entry_ids.index(active_eid) if active_eid in entry_ids else 0,
+                format_func=lambda i: entry_labels[entry_ids[i]],
+                key="_sidebar_provider_idx",
+            )
+            selected_eid = entry_ids[selected_provider_idx]
+            selected_entry = configured[selected_eid]
+
+            # 模型下拉
+            models = selected_entry.all_models()
+            if not models:
+                st.info("此提供商暂无模型，请在模型设置中添加。")
+            else:
+                model_idx = models.index(active_model) if active_eid == selected_eid and active_model in models else 0
+                selected_model = st.selectbox(
+                    "模型",
+                    models,
+                    index=model_idx,
+                    key="_sidebar_model",
                 )
-                custom_base = st.text_input(
-                    "Base URL", value="https://api.deepseek.com/v1", key="custom_base",
-                )
-                if st.button("应用模型设置"):
-                    _apply_model_override(custom_model, custom_base)
-                    st.success(f"已切换至 {custom_model}")
-                    st.rerun()
+                # 若选择变化 → 持久化
+                expected_profile_id = f"{selected_eid}:{selected_model}"
+                if store.active_profile_id != expected_profile_id:
+                    store.set_active_profile(selected_eid, selected_model)
+                    _save_store()
+
+                # 显示当前选择信息
+                preset = selected_entry.preset()
+                mode_hint = "JSON 模式" if not preset.supports_structured_output else "原生结构化输出"
+                st.caption(f"✓ 将用于所有新辩论（{mode_hint}）")
+
+            # 管理按钮
+            if st.button("⚙️ 管理所有模型", use_container_width=True, key="_sidebar_manage"):
+                st.switch_page(st.Page(render_model_settings_page, title="模型设置", icon="🔧"))
 
         st.divider()
 
-        # ---- 温度调节（全局，新辩论生效） ----
+        # ---- 温度调节 ----
         st.caption("🎚️ Agent 创造性")
         st.slider(
             "温度",
@@ -177,7 +209,7 @@ def _render_sidebar() -> None:
             key="agent_temperature",
         )
 
-        # ---- 最大轮次（安全阀） ----
+        # ---- 最大轮次 ----
         st.caption("🛡️ 安全限制")
         st.slider(
             "最大轮次",
@@ -191,22 +223,19 @@ def _render_sidebar() -> None:
 
         st.divider()
 
-        # ---- 全局操作提示 ----
-        has_any_key = bool(st.session_state.get("api_key") or env_configured)
-        if not has_any_key:
-            st.warning("请先配置 LLM API Key（.env 或侧边栏均可）")
-
-        # Per-tab 模型隔离说明
-        if has_any_key and st.session_state.get("sessions"):
-            started_count = sum(
-                1 for s in st.session_state["sessions"].values()
-                if s.get("started")
+        # Per-tab 隔离说明
+        sessions = st.session_state.get("sessions", {})
+        started_count = sum(1 for s in sessions.values() if s.get("started"))
+        if started_count > 0:
+            st.caption(
+                f"ℹ️ 模型配置仅对新辩论生效。"
+                f"当前 {started_count} 个运行中的标签页使用启动时的配置。"
             )
-            if started_count > 0:
-                st.caption(
-                    f"ℹ️ 模型配置仅对新辩论生效。"
-                    f"当前 {started_count} 个运行中的标签页使用启动时的配置。"
-                )
+
+
+def _format_entry_label(entry_id: str, entry: ProviderEntry) -> str:
+    preset = entry.preset()
+    return f"{preset.icon} {entry.display_name}"
 
 
 # =============================================================================
@@ -226,7 +255,7 @@ def _ensure_default_tab() -> None:
             "label": "辩论 1",
             "custom_label": "",
             "started": False,
-            "model_config": {},
+            "model_config": _capture_model_config(),
         }
         st.session_state["next_tab_id"] = 2
 
@@ -252,16 +281,12 @@ def _close_tab(tab_id: str) -> None:
     sessions = st.session_state.get("sessions", {})
     session = sessions.get(tab_id, {})
 
-    # 清理 checkpointer 中该标签页的状态（释放内存）
     thread_id = session.get("thread_id", "")
     if thread_id:
         checkpointer = st.session_state.get("checkpointer")
         if checkpointer and hasattr(checkpointer, "storage"):
-            # MemorySaver 内部使用 storage 字典存储 thread_id → checkpoint 映射
             storage = checkpointer.storage  # type: ignore[union-attr]
-            # 尝试删除对应的 checkpoint 数据
             try:
-                # MemorySaver 的存储结构：storage[thread_id] = checkpoint_data
                 if thread_id in storage:
                     del storage[thread_id]
             except (TypeError, KeyError, AttributeError):
@@ -275,7 +300,6 @@ def _close_tab(tab_id: str) -> None:
 def _close_all_tabs() -> None:
     """关闭所有标签页并清理所有 checkpoint 数据。"""
     sessions = st.session_state.get("sessions", {})
-    # 清理所有 checkpoint
     checkpointer = st.session_state.get("checkpointer")
     if checkpointer and hasattr(checkpointer, "storage"):
         storage = checkpointer.storage  # type: ignore[union-attr]
@@ -297,17 +321,15 @@ def _rename_tab(tab_id: str, new_label: str) -> None:
     sessions = st.session_state.get("sessions", {})
     if tab_id in sessions and new_label.strip():
         sessions[tab_id]["custom_label"] = new_label.strip()
-        # 更新显示用 label
         sessions[tab_id]["label"] = new_label.strip()
 
 
 def _get_tab_ids() -> list[str]:
-    """获取所有标签页 ID 列表（按创建顺序）。"""
     return list(st.session_state.get("sessions", {}).keys())
 
 
 # =============================================================================
-# 状态读取（标签页感知）
+# 状态读取
 # =============================================================================
 
 
@@ -329,7 +351,6 @@ def _get_current_state(tab_id: str) -> AgentState | None:
 
 
 def _get_interrupt_value(tab_id: str) -> str | None:
-    """获取指定标签页的当前活跃中断值（若有）。"""
     graph = st.session_state.get("graph")
     thread_id = (
         st.session_state.get("sessions", {})
@@ -347,12 +368,11 @@ def _get_interrupt_value(tab_id: str) -> str | None:
 
 
 # =============================================================================
-# UI 事件处理（标签页感知）
+# UI 事件处理
 # =============================================================================
 
 
 def _ensure_shared_graph() -> None:
-    """确保共享的 graph 和 checkpointer 已创建（全局唯一）。"""
     if "checkpointer" not in st.session_state:
         st.session_state["checkpointer"] = MemorySaver()
     if "graph" not in st.session_state:
@@ -367,7 +387,6 @@ def _ensure_shared_graph() -> None:
 
 
 def _node_label(node_name: str) -> str:
-    """将 LangGraph 节点名映射为人类可读的中文标签。"""
     labels: dict[str, str] = {
         "start": "初始化",
         "opponent_compute": "批判者分析",
@@ -381,12 +400,11 @@ def _node_label(node_name: str) -> str:
 
 
 # =============================================================================
-# 流式执行（在渲染线程中运行，支持渐进式 UI 更新）
+# 流式执行
 # =============================================================================
 
 
 def _execute_stream_start(tab_id: str) -> None:
-    """从初始状态开始流式执行图，展示 LLM token 渐进输出。"""
     sessions = st.session_state["sessions"]
     session = sessions[tab_id]
     initial_thesis = session["initial_thesis"]
@@ -396,7 +414,7 @@ def _execute_stream_start(tab_id: str) -> None:
 
     _ensure_shared_graph()
     graph = st.session_state["graph"]
-    thread_id = str(uuid4())
+    thread_id = str(uuid.uuid4())
 
     sessions[tab_id]["thread_id"] = thread_id
     sessions[tab_id].pop("pending_start", None)
@@ -406,6 +424,8 @@ def _execute_stream_start(tab_id: str) -> None:
         agent_temperature=session.get("agent_temperature", 0.7),
         model_name=model_config.get("model_name", ""),
         model_base_url=model_config.get("base_url", ""),
+        model_api_key=model_config.get("api_key", ""),
+        model_json_mode=bool(model_config.get("json_mode", False)),
         max_rounds=session.get("max_rounds", 10),
     )
     config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
@@ -415,11 +435,10 @@ def _execute_stream_start(tab_id: str) -> None:
 
 
 def _execute_stream_resume(tab_id: str, user_value: str) -> None:
-    """从中断点流式恢复执行。"""
     sessions = st.session_state["sessions"]
     sessions[tab_id].pop("pending_resume", None)
 
-    st.toast("✅ 已从错误中恢复")
+    st.toast("✅ 已继续")
 
     _ensure_shared_graph()
     graph = st.session_state["graph"]
@@ -433,14 +452,6 @@ def _execute_stream_resume(tab_id: str, user_value: str) -> None:
 
 
 def _run_stream(graph, input_data, config: RunnableConfig) -> None:
-    """执行 graph.stream() 并通过 st.empty() 渐进渲染 LLM token。
-
-    在主渲染线程中调用（非按钮回调），因此 st.empty() 占位符
-    可在循环中逐步更新，实现 token 级流式输出。
-
-    包含错误边界：非 GraphInterrupt 的异常会被捕获并展示可操作的中文错误信息，
-    用户可通过"重试"按钮从中断点恢复。
-    """
     token_placeholder = st.empty()
     error_placeholder = st.empty()
     accumulated = ""
@@ -473,20 +484,15 @@ def _run_stream(graph, input_data, config: RunnableConfig) -> None:
                     accumulated = ""
                     token_placeholder.empty()
         except GraphInterrupt:
-            # 到达 interrupt() 点，状态已由 LangGraph 检查点保存
             pass
         except Exception as exc:
-            # --- 错误边界：捕获非预期的流式异常 ---
             token_placeholder.empty()
             error_msg = str(exc)
             error_type = type(exc).__name__
-
-            # 记录到 trace logger
             tlog.record_error(f"{error_type}: {error_msg}")
 
-            # 分类展示用户友好的错误信息
             if "api_key" in error_msg.lower() or "auth" in error_msg.lower() or "401" in error_msg:
-                user_msg = "🔑 API Key 鉴权失败。请检查侧边栏或 .env 中的 API Key 是否正确。"
+                user_msg = "🔑 API Key 鉴权失败。请在「模型设置」中检查 API Key 是否正确。"
             elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
                 user_msg = "⏱️ LLM 请求超时。网络可能不稳定，请点击下方「重试」按钮。"
             elif "rate" in error_msg.lower() or "429" in error_msg:
@@ -500,13 +506,11 @@ def _run_stream(graph, input_data, config: RunnableConfig) -> None:
 
             error_placeholder.error(user_msg)
 
-            # 可展开的技术详情
             with st.expander("🔍 技术详情"):
                 st.code(traceback.format_exc(), language="python")
                 summary = tlog.summary()
                 st.json(summary)
 
-            # 重试按钮 —— 利用 checkpoint 从中断点恢复
             col_retry, col_reset = st.columns([1, 1])
             with col_retry:
                 if st.button("🔄 重试", key=f"retry_stream_{tid}", use_container_width=True):
@@ -517,15 +521,8 @@ def _run_stream(graph, input_data, config: RunnableConfig) -> None:
 
 
 def _on_start_debate(tab_id: str, initial_thesis: str) -> None:
-    """为指定标签页启动辩论（设置 pending flag，实际执行在渲染循环中）。
-
-    在启动时冻结当前侧边栏的模型配置和温度参数到 per-tab session，
-    后续该标签页的所有 LLM 调用使用冻结的配置，不受侧边栏修改影响。
-    """
-    api_key = st.session_state.get("api_key", "")
-    has_key = bool(api_key) or has_configured_api_key()
-    if not has_key:
-        st.error("请先配置 LLM API Key（在项目 .env 文件中或侧边栏输入均可）")
+    if not _has_active_model():
+        st.error("请先在侧边栏或「模型设置」中配置并选择一个可用模型。")
         return
 
     _ensure_shared_graph()
@@ -549,7 +546,6 @@ def _on_start_debate(tab_id: str, initial_thesis: str) -> None:
 
 
 def _on_reset(tab_id: str) -> None:
-    """重置指定标签页的辩论状态（保留模型配置以保持一致）。"""
     sessions = st.session_state.get("sessions", {})
     if tab_id in sessions:
         old_label = sessions[tab_id].get("custom_label", "") or sessions[tab_id].get(
@@ -567,7 +563,6 @@ def _on_reset(tab_id: str) -> None:
 
 
 def _resume_with_input(tab_id: str, user_value: str) -> None:
-    """从当前中断点恢复指定标签页的执行（设置 pending flag）。"""
     graph = st.session_state.get("graph")
     thread_id = (
         st.session_state.get("sessions", {})
@@ -576,18 +571,16 @@ def _resume_with_input(tab_id: str, user_value: str) -> None:
     )
     if graph is None or not thread_id:
         return
-    # 设置 pending flag，实际流式执行在渲染循环中
     st.session_state["sessions"][tab_id]["pending_resume"] = user_value
     st.rerun()
 
 
 # =============================================================================
-# 中断 UI 渲染（标签页感知，widget key 带命名空间）
+# 中断 UI
 # =============================================================================
 
 
 def _render_interrupt_ui(tab_id: str, status: str, interrupt_value: str) -> None:
-    """根据当前 status 渲染对应的中断输入界面。"""
     if status == "awaiting_critique_response":
         st.subheader("⚔️ 批判者的质疑")
         with st.chat_message("opponent", avatar="⚔️"):
@@ -633,12 +626,11 @@ def _render_interrupt_ui(tab_id: str, status: str, interrupt_value: str) -> None
 
 
 # =============================================================================
-# 状态展示（纯渲染，无标签页依赖）
+# 状态展示
 # =============================================================================
 
 
 def _render_status_badge(status: str) -> None:
-    """渲染状态标签。"""
     label_map = {
         "idle": "⏳ 等待中",
         "opponent_computing": "⚔️ 批判者分析中…",
@@ -653,12 +645,10 @@ def _render_status_badge(status: str) -> None:
 
 
 def _render_progress(current_round: int) -> None:
-    """渲染轮次指示器。"""
     st.caption(f"当前轮次: 第 {current_round} 轮")
 
 
 def _render_conversation(messages: list[dict]) -> None:
-    """渲染对话历史。"""
     if not messages:
         st.info("辩论尚未开始，请在标签页中输入论题并点击「开始辩论」。")
         return
@@ -678,7 +668,6 @@ def _render_conversation(messages: list[dict]) -> None:
         emoji, label = role_meta.get(role, ("❓", role))
         round_num = msg.get("round", "?")
 
-        # 时间戳（兼容旧消息无 timestamp 字段）
         timestamp = msg.get("timestamp")
         time_str = ""
         if isinstance(timestamp, (int, float)):
@@ -695,7 +684,6 @@ def _render_conversation(messages: list[dict]) -> None:
 
 
 def _render_judgment(judgment: RefereeJudgment | dict | None) -> None:
-    """渲染裁判的审议结果。"""
     if judgment is None:
         return
     j = judgment if isinstance(judgment, dict) else judgment.model_dump()
@@ -715,14 +703,12 @@ def _render_judgment(judgment: RefereeJudgment | dict | None) -> None:
 
 
 def _render_final_result(history: list, final_result: str) -> None:
-    """渲染论题演化终局总结。"""
     if not history:
         return
 
     st.divider()
     st.subheader("🏁 论题演化总结")
 
-    # 展示论题演化链
     st.markdown("### 论题演化历程")
     for i, r in enumerate(history):
         record = r if isinstance(r, dict) else r.model_dump()
@@ -747,7 +733,6 @@ def _render_final_result(history: list, final_result: str) -> None:
                 st.markdown("**裁判拼合**")
                 st.info(after)
 
-    # 统计
     total = len(history)
     continued = sum(
         1 for r in history
@@ -771,27 +756,19 @@ def _render_final_result(history: list, final_result: str) -> None:
 
 
 def _render_tab_content(tab_id: str) -> None:
-    """渲染单个标签页的完整辩论 UI。
-
-    包含：标签页重命名、模型配置展示、流式执行（含错误边界）、
-    中断 UI、对话历史、裁判审议和终局报告。
-    """
     sessions = st.session_state["sessions"]
     session = sessions.get(tab_id, {})
     started = session.get("started", False)
 
-    # ---- 流式执行：pending_start ----
     if session.get("pending_start"):
         _execute_stream_start(tab_id)
         return
 
-    # ---- 流式执行：pending_resume ----
     pending_resume = session.get("pending_resume")
     if pending_resume is not None:
         _execute_stream_resume(tab_id, pending_resume)
         return
 
-    # ---- 标签页工具栏：重命名 + 关闭 ----
     col_title, col_rename, col_close = st.columns([17, 4, 1])
     with col_close:
         if st.button("✕", key=f"close_{tab_id}", help="关闭此辩论标签页"):
@@ -799,7 +776,6 @@ def _render_tab_content(tab_id: str) -> None:
             st.rerun()
 
     if not started:
-        # ---- 未启动：重命名 + 论题输入 + 开始按钮 ----
         with col_rename:
             custom = st.text_input(
                 "标签名",
@@ -823,23 +799,40 @@ def _render_tab_content(tab_id: str) -> None:
         )
         sessions[tab_id]["initial_thesis"] = thesis
 
-        # 模型配置信息
         mc = session.get("model_config", {})
         if mc.get("model_name"):
+            # 显示冻结模型配置
+            preset_label = ""
+            store = _get_store()
+            try:
+                profile = store.get_active_profile()
+                if profile is not None:
+                    e = store.providers.get(profile.provider_entry_id)
+                    if e is not None:
+                        p = e.preset()
+                        preset_label = f"{p.icon} {e.display_name} / "
+            except Exception:
+                pass
             st.caption(
-                f"🔧 模型: {mc['model_name']}"
+                f"🔧 模型: {preset_label}{mc['model_name']}"
                 f" | 温度: {session.get('agent_temperature', 0.7)}"
                 f" | 最大轮次: {session.get('max_rounds', 10)}"
             )
+        elif not _has_active_model():
+            st.warning("⚠️ 请先在侧边栏选择或在「模型设置」中添加一个模型，再开始辩论。")
 
-        if st.button("🚀 开始辩论", key=f"start_{tab_id}", use_container_width=True):
+        can_start = bool(thesis and thesis.strip() and _has_active_model())
+        if st.button(
+            "🚀 开始辩论", key=f"start_{tab_id}", use_container_width=True,
+            disabled=not can_start,
+        ):
             if thesis and thesis.strip():
                 _on_start_debate(tab_id, thesis)
             else:
                 st.warning("请输入论题")
         return
 
-    # ---- 已启动：重命名 + 模型信息 + 状态渲染 ----
+    # ---- 已启动 ----
     with col_rename:
         custom = st.text_input(
             "标签名",
@@ -851,7 +844,6 @@ def _render_tab_content(tab_id: str) -> None:
         if custom and custom != session.get("custom_label", ""):
             _rename_tab(tab_id, custom)
 
-    # 模型配置小标签
     mc = session.get("model_config", {})
     if mc.get("model_name"):
         with col_title:
@@ -861,16 +853,12 @@ def _render_tab_content(tab_id: str) -> None:
                 f" | 最多 {session.get('max_rounds', 10)} 轮"
             )
 
-    # ---- 读取 LangGraph 状态 ----
     state = _get_current_state(tab_id)
-
     if state is None:
         st.info("正在初始化…")
         return
 
     status = state.get("status", "idle")
-
-    # 检查是否有活跃中断
     interrupt_value = _get_interrupt_value(tab_id)
 
     if interrupt_value and status in (
@@ -883,7 +871,6 @@ def _render_tab_content(tab_id: str) -> None:
         _render_interrupt_ui(tab_id, status, interrupt_value)
         return
 
-    # 非中断状态：展示完整状态
     _render_status_badge(status)
     _render_progress(state.get("round", 1))
 
@@ -909,7 +896,6 @@ def _render_tab_content(tab_id: str) -> None:
             st.info("等待裁判审议…")
 
         if status == "done":
-            # 学习完成庆祝（每标签页仅触发一次）
             done_key = f"_done_celebrated_{tab_id}"
             if not st.session_state.get(done_key):
                 st.toast("🎉 学习会话完成！")
@@ -917,29 +903,24 @@ def _render_tab_content(tab_id: str) -> None:
                 st.session_state[done_key] = True
             _render_final_result(history, state.get("final_result", ""))
         else:
-            # 非 done 状态时清除庆祝标记，以便下次完成时再次触发
             done_key = f"_done_celebrated_{tab_id}"
             if st.session_state.get(done_key):
                 st.session_state.pop(done_key, None)
 
-    # 重置按钮
     if st.button("🔄 重置此辩论", key=f"reset_{tab_id}"):
         _on_reset(tab_id)
 
 
 # =============================================================================
-# 主页面
+# 辩论页面主渲染
 # =============================================================================
 
 
-def main() -> None:
-    """主入口：组合侧边栏、标签页导航与辩论 UI。"""
-    _render_sidebar()
-
+def render_chat_page() -> None:
+    """辩论主页面。"""
     st.title("🎓 多智能体论题演化系统")
     st.caption("批判者审视 · 陈述者精确化 · 你确认 · 裁判拼合演化")
 
-    # 注入全局 CSS + 自动滚动 JS（同一 session 仅执行一次）
     inject_global_css()
 
     _ensure_default_tab()
@@ -947,7 +928,6 @@ def main() -> None:
     tab_ids = _get_tab_ids()
     sessions = st.session_state["sessions"]
 
-    # 标签栏 + 新建按钮 + 清空按钮
     col_info, col_add, col_clear = st.columns([7, 1, 1])
     with col_info:
         total_sessions = len(sessions)
@@ -975,7 +955,6 @@ def main() -> None:
         st.info("点击「新辩论」按钮创建辩论标签页")
         return
 
-    # 使用 st.tabs() 渲染标签页
     tab_labels = [sessions[tid].get("label", tid) for tid in tab_ids]
     tabs = st.tabs(tab_labels)
 
@@ -983,6 +962,32 @@ def main() -> None:
         tab_id = tab_ids[i]
         with tab:
             _render_tab_content(tab_id)
+
+
+# =============================================================================
+# 导航入口
+# =============================================================================
+
+
+def main() -> None:
+    """主入口：配置共享侧边栏 + 多页面导航。
+
+    注意：_render_sidebar() 必须在 pg.run() 之前调用，这样侧边栏在两个页面中共享。
+    """
+    # 确保 store 初始化（侧边栏需要用到）
+    _get_store()
+    _ensure_shared_graph()
+    _ensure_default_tab()
+
+    # 共享侧边栏
+    _render_sidebar()
+
+    # 多页面导航
+    pg = st.navigation([
+        st.Page(render_chat_page, title="辩论", icon="💬", default=True),
+        st.Page(render_model_settings_page, title="模型设置", icon="🔧"),
+    ])
+    pg.run()
 
 
 if __name__ == "__main__":

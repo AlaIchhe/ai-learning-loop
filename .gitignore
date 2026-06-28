@@ -20,6 +20,9 @@ htmlcov/
 .env.local
 !.env.example
 
+# Model configuration (persisted API keys)
+.model-config.json
+
 # IDE
 .vscode/
 .idea/

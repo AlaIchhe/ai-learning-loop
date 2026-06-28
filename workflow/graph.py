@@ -56,7 +56,9 @@ def _next_round_node(state: AgentState) -> dict:
     """轮次推进节点：round+1，清空本轮缓存，准备下一轮。
 
     这是纯调度逻辑，不涉及任何 LLM。
-    注意：_model_name / _model_base_url 是 per-tab 持久配置，不清除。
+    注意：per-tab 持久配置字段（_model_name / _model_base_url / _model_api_key /
+    _model_json_mode / agent_temperature / max_rounds）不在清空列表中，
+    自动跨轮次保留，实现模型与参数的轮次间一致性。
     """
     return {
         "round": state["round"] + 1,

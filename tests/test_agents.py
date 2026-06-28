@@ -521,7 +521,7 @@ class TestOpponentEdgeCases:
             result = opponent_compute_node(state, model=None)
         assert "_critique" in result
         mock_get.assert_called_once_with(
-            temperature=0.7, model_name=None, base_url=None,
+            temperature=0.7, model_name=None, base_url=None, api_key=None,
         )
 
     def test_empty_llm_response_handled(self):
@@ -580,7 +580,7 @@ class TestPresenterEdgeCases:
             result = presenter_compute_node(state, model=None)
         assert "_draft_thesis" in result
         mock_get.assert_called_once_with(
-            temperature=0.7, model_name=None, base_url=None,
+            temperature=0.7, model_name=None, base_url=None, api_key=None,
         )
 
     def test_empty_llm_response_handled(self):
@@ -640,7 +640,7 @@ class TestRefereeEdgeCases:
             result = referee_deliberate_node(state, model=None)
         assert "status" in result
         mock_get.assert_called_once_with(
-            temperature=0.0, model_name=None, base_url=None,
+            temperature=0.0, model_name=None, base_url=None, api_key=None,
         )
 
     def test_dict_format_history_from_checkpoint(self):

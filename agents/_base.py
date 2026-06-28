@@ -166,6 +166,7 @@ def invoke_llm(
     trace: TraceLogger | None = None,
     model_name: str | None = None,
     model_base_url: str | None = None,
+    model_api_key: str | None = None,
 ) -> str:
     """调用 LLM 并返回提取后的文本内容（含自动重试）。
 
@@ -180,6 +181,7 @@ def invoke_llm(
         trace: 可选的 TraceLogger。
         model_name: 可选的模型名覆盖（per-tab 配置）。
         model_base_url: 可选的模型端点覆盖（per-tab 配置）。
+        model_api_key: 可选的 API Key 覆盖（per-tab 配置）。空串等价于未传入。
 
     Returns:
         LLM 响应文本（已 strip）。
@@ -189,6 +191,7 @@ def invoke_llm(
             temperature=temperature,
             model_name=model_name,
             base_url=model_base_url,
+            api_key=model_api_key,
         )
 
     response = invoke_with_retry(

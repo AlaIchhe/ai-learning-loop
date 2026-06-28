@@ -38,25 +38,37 @@ streamlit run ui/app.py             # Standard way (run from project root)
 # Export graph architecture diagram
 python run.py --export-graph        # → graph_architecture.png
 python -m workflow.graph            # Equivalent
+
+# Frontend visual verification (Playwright MCP must be configured globally)
+# 1. In a separate terminal: python run.py        # starts Streamlit on :8501
+# 2. Ask Claude to use browser tools: navigate → screenshot → inspect
+# Example prompts:
+#   "Navigate to http://localhost:8501, take a screenshot, describe the UI"
+#   "Type a topic into the input, click Start debate, wait 2s, screenshot"
 ```
 
-## Environment Configuration
+## Model Configuration
 
-Copy `.env.example` to `.env` and configure:
+Models are managed via the in-app **🔧 模型设置** page (recommended) or via `.env` (backward compatible for scripts/CI).
+
+**Method A — UI (recommended):** Launch the app, navigate to "🔧 模型设置" in the sidebar. Add providers, test connections, select default model. Config persists to `.model-config.json` (gitignored) and survives restarts.
+
+Built-in provider presets: OpenAI, DeepSeek, SiliconFlow (硅基流动), Tongyi Qwen (通义千问), Zhipu GLM (智谱), Moonshot Kimi (月之暗面), Ollama (本地), and a "custom OpenAI-compatible" option. Each preset includes known base URL, preset models, and `json_mode` auto-detection for providers that don't support native `with_structured_output`.
+
+**Method B — `.env` (backward compatible):** Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Multi-provider LLM (pick one, leave others commented)
 LLM_MODEL=deepseek-chat                          # or gpt-4o
 LLM_BASE_URL=https://api.deepseek.com/v1         # omit for OpenAI
 LLM_API_KEY=sk-your-key-here
 
-# LangSmith tracing (optional; uncomment only with a real LangSmith key)
+# LangSmith tracing (optional)
 # LANGCHAIN_TRACING_V2=true
 # LANGCHAIN_API_KEY=lsv2_pt_your-key
 # LANGCHAIN_PROJECT=ai-learning-loop
 ```
 
-The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. If neither is configured, `get_chat_model()` emits a `RuntimeWarning` and uses a placeholder key — the real error surfaces when the LLM is first invoked.
+On first launch with a `.env` present, settings are auto-migrated to `.model-config.json`. The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. Scripts (`scripts/integration_test_real.py`, `scripts/ghost_probe.py`) continue to work purely via env vars.
 
 ## Project Files
 
@@ -69,13 +81,14 @@ The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. If neither is confi
 | `.streamlit/config.toml` | Theme config: light/dark dual themes, academic blue brand color, hidden default menus |
 | `ui/style.css` | Global stylesheet: fonts, message bubbles, button animations, dark mode, scrollbar, cursor blink |
 | `ui/style.py` | `inject_global_css()` — CSS + auto-scroll JS injection; `typing_cursor_html()` — blink cursor fragment |
+| `core/providers.py` | Preset provider registry (8 built-in providers); `detect_preset_by_base_url()` for env migration |
+| `core/model_store.py` | `ModelStore` / `ProviderEntry` / `ModelProfile` — JSON persistence, CRUD, env migration |
+| `core/connection_test.py` | `test_connection()` — API connectivity test with Chinese error classification (auth/timeout/network/server) |
+| `ui/model_settings.py` | `render_model_settings_page()` — model management page (add/edit/delete providers, connection test, custom models) |
+| `.model-config.json` | Persisted model/provider configuration (gitignored; auto-migrated from `.env` on first run) |
 
-## Adding a New Provider
+## Adding a New Preset Provider
 
-1. Edit `.env`:
-   ```
-   LLM_MODEL=your-model-name
-   LLM_BASE_URL=https://your-api/v1
-   LLM_API_KEY=your-key
-   ```
-2. Done. `get_chat_model()` picks it up automatically. Any OpenAI-compatible API works (DeepSeek, Ollama, vLLM, SiliconFlow, etc.). If the provider doesn't support `with_structured_output`, use `referee_deliberate_node(json_mode=True)` for DeepSeek-compatible JSON-mode handling.
+Add a `ProviderPreset` entry to `core/providers.py::_PRESETS_ORDERED` with: `id`, `label`, `icon`, `base_url` (None for OpenAI), `api_key_help_url`, `api_key_placeholder`, `api_key_required`, `preset_models` tuple, and `supports_structured_output=False` for providers that need JSON-mode (DeepSeek, most Chinese providers). No other code changes needed — the Model Store, migration, sidebar, and settings page pick up the new preset automatically.
+
+Per-model `json_mode` is now handled automatically: the ModelStore's `ModelProfile.supports_structured_output` flag is frozen into `AgentState._model_json_mode` at debate start, and `referee_deliberate_node` OR's this with its explicit `json_mode` parameter. No code-level changes are needed when adding a new provider that requires JSON-mode — just set `supports_structured_output=False` on the preset.

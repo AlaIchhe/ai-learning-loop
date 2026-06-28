@@ -37,6 +37,8 @@ def make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgu
         "_improvement_hint": "",
         "_model_name": "",
         "_model_base_url": "",
+        "_model_api_key": "",
+        "_model_json_mode": False,
         "max_rounds": 10,
     }
     return cast(AgentState, {**defaults, **overrides})
