@@ -265,7 +265,7 @@ def _deepseek_referee_node(state: AgentState) -> dict:
 
 
 # =============================================================================
-# 测试 5: LangGraph 单轮工作流（真实 LLM + 真实 interrupt）
+# 测试 4: LangGraph 单轮工作流（真实 LLM + 真实 interrupt）
 # =============================================================================
 
 
@@ -275,7 +275,7 @@ def test_workflow_single_round() -> bool:
     使用真实 DeepSeek API 调用 + 真实 LangGraph interrupt()/Command(resume=...)。
     这是最接近生产环境运行方式的测试。
     """
-    _header("测试 5: LangGraph 完整单轮工作流（真实 API）")
+    _header("测试 4: LangGraph 完整单轮工作流（真实 API）")
 
     # ---- 导入真实 Agent 节点（Opponent/Presenter 不需要修改） ----
     from agents.opponent import opponent_compute_node, opponent_interact_node
@@ -381,13 +381,13 @@ def test_workflow_single_round() -> bool:
 
 
 # =============================================================================
-# 测试 6: 多轮工作流（两轮完整辩论）
+# 测试 5: 多轮工作流（两轮完整辩论）
 # =============================================================================
 
 
 def test_workflow_multi_round() -> bool:
     """两轮辩论工作流 —— 验证多轮状态演化和 checkpoint 持久性。"""
-    _header("测试 6: LangGraph 多轮工作流（真实 API）")
+    _header("测试 5: LangGraph 多轮工作流（真实 API）")
 
     from agents.opponent import opponent_compute_node, opponent_interact_node
     from agents.presenter import presenter_compute_node, presenter_interact_node
@@ -466,13 +466,13 @@ def test_workflow_multi_round() -> bool:
 
 
 # =============================================================================
-# 测试 7: Checkpoint 持久性验证
+# 测试 6: Checkpoint 持久性验证
 # =============================================================================
 
 
 def test_checkpoint_persistence() -> bool:
     """验证 checkpoint 在中断点的状态保存与恢复。"""
-    _header("测试 7: Checkpoint 持久性验证")
+    _header("测试 6: Checkpoint 持久性验证")
 
     from agents.opponent import opponent_compute_node, opponent_interact_node
     from agents.presenter import presenter_compute_node, presenter_interact_node

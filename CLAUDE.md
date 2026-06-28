@@ -127,7 +127,7 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 
 **`env.py`** — `setup_environment(project_root, *, change_cwd, verbose)` — unified entry point for sys.path setup, `.env` loading, and optional cwd change. Used by `run.py` and all `scripts/*.py` to eliminate triplicate initialization code.
 
-**`state.py`** — `AgentState(TypedDict)` with 14 fields (9 persistent + 5 round-cache), plus `NodeOutput = dict[str, object]` for node return types. Also exports `make_initial_state(thesis, *, agent_temperature, model_name, model_base_url, max_rounds)` — the single authoritative entry-state factory used by UI, scripts, and tests — and `validate_state_shape(state)` — runtime guard that rejects incomplete states before agent nodes.
+**`state.py`** — `AgentState(TypedDict)` with 15 fields (10 persistent + 5 round-cache), plus `NodeOutput = dict[str, object]` for node return types. Also exports `make_initial_state(thesis, *, agent_temperature, model_name, model_base_url, max_rounds)` — the single authoritative entry-state factory used by UI, scripts, and tests — and `validate_state_shape(state)` — runtime guard that rejects incomplete states before agent nodes.
 
 | Group | Fields | Purpose |
 |-------|--------|---------|
@@ -138,7 +138,7 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 | Round cache (`_` prefix, ephemeral) | `_critique`, `_user_response`, `_draft_thesis`, `_confirmed_thesis`, `_improvement_hint` | Per-round ephemeral data. Cleared by `next_round` node (5 fields only — `_model_name` / `_model_base_url` are preserved). `_improvement_hint` feeds the guide's strategic direction forward to the next round's questioner. |
 | Archive | `history: list[RoundRecord]`, `final_result` | Completed rounds + learning summary |
 
-**`schemas.py`** — Pydantic v2 models with `_StrictModel` base class (`ConfigDict(extra='forbid')`). `RefereeJudgment` (with `continue_debate`/`new_thesis`/`reasoning`/`improvement_hint`) is the core contract — the guide uses this to decide whether to continue the learning session. `RoundRecord` archives each round. `round` field removed from `RefereeJudgment` (LLM output was always overwritten by code). `Message` and `DebateResult` models removed (never used in production).
+**`schemas.py`** — Pydantic v2 models with `_StrictModel` base class (`ConfigDict(extra='forbid')`). `RefereeJudgment` (with `continue_debate`/`new_thesis`/`reasoning`/`improvement_hint`) is the core contract — the guide uses this to decide whether to continue the learning session. `RoundRecord` archives each round (with `timestamp` field for audit trail). `round` field removed from `RefereeJudgment` (LLM output was always overwritten by code). `Message` and `DebateResult` models removed (never used in production).
 
 **`prompts.py`** — Four system prompt constants and four template functions. Agents import these — no string hardcoding.
 - `OPPONENT_SYSTEM_PROMPT` / `opponent_prompt(current_thesis, improvement_hint="")` — Socratic questioner: probes the topic's boundaries, assumptions, and implications through guided questioning (3 strategies: logical exploration / boundary clarification / counterexample probing). Single-point, ≤80 chars. `improvement_hint` carries the guide's strategic direction from the previous round.
@@ -148,7 +148,7 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 
 **`model.py`** — `ModelConfig` dataclass captures model name, base URL, and API key. `load_model_config(env)` parses environment into a `ModelConfig` (treating `sk-not-configured` placeholder as missing). `has_configured_api_key(env)` provides centralized API-key detection shared by UI, scripts, and the model factory. `get_chat_model(temperature, *, model_name=None, base_url=None)` builds `ChatOpenAI` from the config with `streaming=True` enabled (required for `graph.stream(stream_mode=["messages"])` token-level output). The optional `model_name`/`base_url` kwargs enable per-tab model overrides (priority > env vars). Adding a new provider is a `.env` change, never a code change.
 
-**`logging.py`** — Structured logging and observability infrastructure. `trace_id_context()` generates a unique 8-char trace ID per request. `TraceLogger` records LLM call timing (duration, success/failure, retry count) and request-level errors. Log output is JSON-lines format with `trace_id` for log aggregation. Used by `_run_stream()` in the UI and `invoke_with_retry()` in agents.
+**`logging.py`** — Structured logging and observability infrastructure. `trace_id_context()` generates a unique 8-char trace ID per request. `get_current_trace_id()` reads the active trace ID from context. `create_trace_logger(trace_id=None)` is a convenience factory that pairs a trace ID with a `TraceLogger`. `TraceLogger` records LLM call timing (duration, success/failure, retry count) and request-level errors. Log output is JSON-lines format with `trace_id` for log aggregation. Used by `_run_stream()` in the UI and `invoke_with_retry()` in agents.
 
 ### 2. `agents/` — Stateless Pure Functions
 
@@ -160,7 +160,9 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 - `extract_content(response)` — extract string from BaseMessage (was 3 copies)
 - `make_message(role, content, round_num)` — construct message dict (was 6 copies)
 - `invoke_llm(model, temperature, system_prompt, user_prompt, *, on_retry=None, trace=None, model_name=None, model_base_url=None)` — shared compute node skeleton with auto-retry + per-tab model override support (was 2 copies). The `on_retry` callback reports progress to UI; `trace` (TraceLogger) records LLM call metrics.
-- `invoke_with_retry(invocable, messages, *, label, on_retry=None, trace=None)` — LLM call with 3-retry exponential backoff (1s/2s/4s) for transient errors. Accepts optional `on_retry` callback for UI progress updates and `trace` for structured logging.
+- `invoke_with_retry(invocable, messages, *, label: str = "LLM", on_retry=None, trace=None)` — LLM call with 3-retry exponential backoff (1s/2s/4s) for transient errors. Accepts optional `on_retry` callback for UI progress updates and `trace` for structured logging.
+- `_is_retryable(error)` — classifies exceptions as transient (timeout/rate-limit) vs permanent.
+- `NodeFunc = Callable[[AgentState], dict]` — type alias for agent node function signatures.
 
 Each agent is split into **compute + interact** nodes to prevent LLM re-execution on `interrupt()` resume:
 - `opponent_compute_node` / `opponent_interact_node` (含 `interrupt()`) — Asks Socratic questions that probe the topic's boundaries and assumptions
@@ -224,6 +226,9 @@ Key UI functions:
 - `_capture_model_config()` — snapshots current sidebar model config for per-tab freezing at debate start
 - `_ensure_default_tab()`, `_add_new_tab()`, `_close_tab(tab_id)`, `_close_all_tabs()`, `_rename_tab(tab_id, new_label)` — tab lifecycle management (close now cleans up checkpointer storage)
 - `_render_tab_content(tab_id)` — full debate UI for one tab: rename / thesis input / model info / interrupt UI / conversation + judgment / error recovery
+- `_ensure_shared_graph()` — lazily creates the shared MemorySaver + CompiledStateGraph singleton
+- `_on_start_debate(tab_id, initial_thesis)` — freezes per-tab model config and sets pending_start flag
+- `_on_reset(tab_id)` — resets a tab's debate to initial state for a fresh start
 - `_execute_stream_start(tab_id)` / `_execute_stream_resume(tab_id, user_value)` — streaming execution entry points (inject per-tab model config + max_rounds into initial state)
 - `_run_stream(graph, input_data, config)` — core streaming loop: `graph.stream()` + `st.empty()` progressive rendering + `GraphInterrupt` handling + error boundary with retry
 - `_node_label(node_name)` — maps graph node names to Chinese status labels for streaming display
@@ -242,12 +247,12 @@ Shared test infrastructure:
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `test_agents.py` | 55 | Opponent compute (6), Opponent interact (3), Presenter compute (6), Presenter interact (4), Referee deliberate (9), Interrupt idempotency (2), Edge cases (13) — model=None path, empty/blank/non-string LLM responses, dict-format history from checkpoint, large round numbers, referee JSON extraction/summary helpers (12) |
-| `test_workflow.py` | 22 | Start/next_round scheduling, conditional routing (all 7 status values), graph compilation, export_graph PNG, missing/unknown status routing, build_graph without checkpointer, state validation at entry |
-| `test_integration.py` | 5 | Single-round lifecycle (2 interrupts), multi-round thesis evolution, state survives interrupt, no message duplication on resume |
+| `test_agents.py` | 49 | Opponent compute (6), Opponent interact (3), Presenter compute (6), Presenter interact (4), Referee deliberate (9), Interrupt idempotency (2), Edge cases (19) — model=None path, empty/blank/non-string LLM responses, dict-format history from checkpoint, large round numbers, referee JSON extraction/summary helpers |
+| `test_workflow.py` | 21 | Start/next_round scheduling, conditional routing (all 7 status values), graph compilation, export_graph PNG, missing/unknown status routing, build_graph without checkpointer, state validation at entry |
+| `test_integration.py` | 6 | Single-round lifecycle (2 tests), multi-round thesis evolution (2 tests), interrupt state persistence (2 tests) |
 | `test_interfaces.py` | 28 | Prompt injection (4+4), node output key validation (6, now covers all 3 nodes), Pydantic serialization round-trip (2, RefereeJudgment + RoundRecord), checkpoint fidelity (2), routing correctness (3+2), state merge safety (1), extra='forbid' validation (1) |
 | `test_model.py` | 22 | `get_chat_model()` full branch coverage + `load_model_config()` + `has_configured_api_key()` — defaults, env var overrides, API key fallback, missing key warning, empty string → None, placeholder treated as missing, temperature parameter |
-| `test_smoke.py` | 20 | Module imports (5), model factory (2), graph compilation with real nodes (2), prompt validity (2), state factory + validation (5), sidebar config behavior (2), end-to-end assembly to first interrupt (1), export_graph with real nodes (1) |
+| `test_smoke.py` | 21 | Module imports (5), model factory (2), graph compilation with real nodes (2), prompt validity (2), state factory + validation (5), sidebar config behavior (2), launcher (1), end-to-end assembly to first interrupt (1), export_graph with real nodes (1) |
 | `test_base.py` | 6 | Retry classification (`_is_retryable`: timeout, rate-limit, non-retryable) + retry loop behavior (success after retry, non-retryable bail, budget exhaust with backoff) |
 | `test_scripts.py` | 1 | Ghost probe structured-output probe against current `RefereeJudgment` schema contract |
 

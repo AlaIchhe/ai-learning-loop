@@ -69,7 +69,6 @@ def _apply_api_key_override(api_key: str) -> None:
     os.environ["OPENAI_API_KEY"] = api_key
 
 
-
 def _apply_model_override(model: str, base_url: str) -> None:
     """应用侧边栏临时模型端点覆盖（仅影响新启动的辩论）。
 
@@ -93,7 +92,6 @@ def _capture_model_config() -> dict[str, str]:
     if api_key:
         config["api_key"] = api_key
     return config
-
 
 
 def _render_sidebar() -> None:
@@ -299,11 +297,7 @@ def _rename_tab(tab_id: str, new_label: str) -> None:
     if tab_id in sessions and new_label.strip():
         sessions[tab_id]["custom_label"] = new_label.strip()
         # 更新显示用 label
-        thesis = sessions[tab_id].get("initial_thesis", "")
-        if thesis:
-            sessions[tab_id]["label"] = new_label.strip()
-        else:
-            sessions[tab_id]["label"] = new_label.strip()
+        sessions[tab_id]["label"] = new_label.strip()
 
 
 def _get_tab_ids() -> list[str]:
@@ -422,7 +416,8 @@ def _execute_stream_resume(tab_id: str, user_value: str) -> None:
     sessions = st.session_state["sessions"]
     sessions[tab_id].pop("pending_resume", None)
 
-    graph = st.session_state.get("graph")
+    _ensure_shared_graph()
+    graph = st.session_state["graph"]
     thread_id = sessions[tab_id].get("thread_id", "")
     if graph is None or not thread_id:
         return
