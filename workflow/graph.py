@@ -36,7 +36,7 @@ from pathlib import Path
 
 from langgraph.graph import END, StateGraph
 
-from core.state import AgentState
+from core.state import AgentState, validate_state_shape
 
 # =============================================================================
 # 纯调度节点（无 LLM 逻辑）
@@ -48,6 +48,7 @@ def _start_node(state: AgentState) -> dict:
 
     该节点仅在入口调用一次，用于状态机启动。
     """
+    validate_state_shape(state)
     return {"round": 1, "status": "opponent_computing"}
 
 

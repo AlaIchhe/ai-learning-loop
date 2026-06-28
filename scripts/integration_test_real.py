@@ -37,14 +37,14 @@ from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
 from agents.referee import referee_deliberate_node  # noqa: E402
-from core.model import get_chat_model  # noqa: E402
+from core.model import get_chat_model, has_configured_api_key  # noqa: E402
 from core.prompts import (  # noqa: E402
     OPPONENT_SYSTEM_PROMPT,
     PRESENTER_SYSTEM_PROMPT,
     opponent_prompt,
     presenter_prompt,
 )
-from core.state import AgentState  # noqa: E402
+from core.state import AgentState, make_initial_state  # noqa: E402
 
 # =============================================================================
 # 辅助函数
@@ -77,24 +77,7 @@ def _info(detail: str) -> None:
 
 
 def _has_api_key() -> bool:
-    key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    return bool(key) and key != "sk-not-configured"
-
-
-def _make_initial_state(thesis: str) -> AgentState:
-    return {
-        "current_thesis": thesis,
-        "round": 1,
-        "status": "idle",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
+    return has_configured_api_key()
 
 
 # =============================================================================
@@ -317,7 +300,7 @@ def test_workflow_single_round() -> bool:
     # ---- Step 1: invoke → 停在 opponent_interact ----
     _sub("Step 1: invoke 到第一个 interrupt")
     t0 = time.time()
-    result = graph.invoke(_make_initial_state(thesis), config)
+    result = graph.invoke(make_initial_state(thesis), config)
     t1 = time.time()
 
     _info(f"状态: {result['status']} | 延迟: {t1-t0:.2f}s")
@@ -430,7 +413,7 @@ def test_workflow_multi_round() -> bool:
 
     # === Round 1 ===
     _sub("Round 1")
-    s = graph.invoke(_make_initial_state(thesis), config)
+    s = graph.invoke(make_initial_state(thesis), config)
     _info(f"R1 批判: {s['_critique'][:100]}")
     s = graph.invoke(Command(resume="高风险AI如医疗诊断必须严格监管，低风险可放宽。"), config)
     _info(f"R1 草稿: {s['_draft_thesis'][:100]}")
@@ -508,7 +491,7 @@ def test_checkpoint_persistence() -> bool:
     config: dict = {"configurable": {"thread_id": thread_id}}
 
     # Invoke → interrupt
-    graph.invoke(_make_initial_state("checkpoint测试论题"), config)
+    graph.invoke(make_initial_state("checkpoint测试论题"), config)
 
     # 通过 get_state 读取 checkpoint
     snapshot = graph.get_state(config)

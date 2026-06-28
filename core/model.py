@@ -11,11 +11,47 @@ Agent 节点通过 get_chat_model() 获取模型实例，
 
 import os
 import warnings
+from collections.abc import Mapping
+from dataclasses import dataclass
 
 from langchain_openai import ChatOpenAI
 
 #: 未配置 API Key 时使用的占位符值。
 _PLACEHOLDER_API_KEY = "sk-not-configured"
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    """从环境变量解析出的模型配置。"""
+
+    model_name: str
+    base_url: str | None
+    api_key: str | None
+
+
+def _get_env_str(source: Mapping[str, object], key: str) -> str:
+    """从环境变量映射读取字符串值；非字符串按缺失处理。"""
+    value = source.get(key, "")
+    return value if isinstance(value, str) else ""
+
+
+def load_model_config(env: Mapping[str, object] | None = None) -> ModelConfig:
+    """从环境变量映射读取模型配置。"""
+    source = os.environ if env is None else env
+    api_key = _get_env_str(source, "LLM_API_KEY") or _get_env_str(source, "OPENAI_API_KEY") or None
+    if api_key == _PLACEHOLDER_API_KEY:
+        api_key = None
+
+    return ModelConfig(
+        model_name=_get_env_str(source, "LLM_MODEL") or "gpt-4o",
+        base_url=_get_env_str(source, "LLM_BASE_URL") or None,
+        api_key=api_key,
+    )
+
+
+def has_configured_api_key(env: Mapping[str, object] | None = None) -> bool:
+    """判断环境中是否配置了真实 API Key（占位符不算已配置）。"""
+    return load_model_config(env).api_key is not None
 
 
 def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
@@ -43,9 +79,8 @@ def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
     Returns:
         配置好的 ChatOpenAI 实例。
     """
-    model_name = os.getenv("LLM_MODEL", "gpt-4o")
-    base_url = os.getenv("LLM_BASE_URL") or None
-    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or None
+    config = load_model_config()
+    api_key = config.api_key
 
     if not api_key:
         warnings.warn(
@@ -58,8 +93,8 @@ def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
         api_key = _PLACEHOLDER_API_KEY
 
     return ChatOpenAI(
-        model=model_name,
+        model=config.model_name,
         temperature=temperature,
-        base_url=base_url,
+        base_url=config.base_url,
         api_key=api_key,  # type: ignore[arg-type]  # langchain 类型桩使用 SecretStr
     )

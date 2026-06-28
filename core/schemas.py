@@ -33,7 +33,7 @@ class RefereeJudgment(_StrictModel):
     这是系统的核心契约 —— agents/referee.py 的 LLM 调用
     必须返回符合此 schema 的 JSON 输出。
 
-    注意：round 字段由代码覆盖（judgment.round = state["round"]），
+    注意：round 由工作流状态和 RoundRecord 归档管理，
     LLM 不应输出该字段。
     """
 

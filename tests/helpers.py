@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 from langchain_openai import ChatOpenAI
 
 from core.state import AgentState
+from core.state import make_initial_state as make_core_initial_state
 
 
 def make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgumentType]
@@ -49,19 +50,7 @@ def make_initial_state(
         thesis: 初始论题文本（快捷参数，等同于 current_thesis）。
         **overrides: 任意 AgentState 键值对，覆盖默认值。
     """
-    defaults: AgentState = {
-        "current_thesis": thesis,
-        "round": 1,
-        "status": "idle",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
+    defaults = make_core_initial_state(thesis)
     return cast(AgentState, {**defaults, **overrides})
 
 

@@ -135,6 +135,14 @@ class TestStartNode:
 
         assert set(result.keys()) == {"round", "status"}
 
+    def test_missing_state_key_fails_before_agent_nodes(self):
+        """入口 state 不完整时，start_node 应在调度层早失败。"""
+        state = dict(make_initial_state())
+        state.pop("_improvement_hint")
+
+        with pytest.raises(KeyError, match="_improvement_hint"):
+            _start_node(state)  # type: ignore[arg-type]
+
 
 # =============================================================================
 # Next Round Node 测试

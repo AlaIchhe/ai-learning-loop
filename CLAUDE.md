@@ -16,7 +16,7 @@ These principles govern every change to this codebase. No exceptions.
 **When replacing or refactoring a module, build the new implementation beside the old one, route to it incrementally, and delete the old code only after the new one has proven itself in production.** Never rip-and-replace. Always: build new → shadow or route incrementally → validate → delete old.
 
 ### 4. Small Commits + Verify After Each
-**One logical change per commit. Run the full test suite after every commit.** The sequence is: make one change → `python -m pytest tests/ -v` (all 126 must pass) → `ruff check .` (zero warnings) → commit. If any check fails, fix it before moving to the next change. Compound changes that touch multiple concerns are rejected — split them.
+**One logical change per commit. Run the full test suite after every commit.** The sequence is: make one change → `python -m pytest tests/ -v` (all mock tests must pass) → `ruff check .` (zero warnings) → commit. If any check fails, fix it before moving to the next change. Compound changes that touch multiple concerns are rejected — split them.
 
 ### 5. No Big Rewrites
 **A big rewrite is forbidden unless you have: (a) a written plan approved by the user, (b) a characterization test suite that pins the current behavior, and (c) a rollback strategy.** "It felt simpler to start over" is not a valid reason. Incremental refactoring via Strangler Fig is always preferred.
@@ -37,12 +37,13 @@ A **cognitive deepening system** built with LangGraph. Three LLM agents — **Op
 ## Development Commands
 
 ```bash
-source venv/Scripts/activate        # Activate virtual environment
-pip install -r requirements.txt     # Install dependencies
+source venv/Scripts/activate        # Activate virtual environment (Windows Git Bash)
+# source venv/bin/activate          # macOS / Linux
+pip install -e ".[dev]"            # Install runtime + development dependencies
 cp .env.example .env                # Configure API keys (first time only)
 
-# Testing (126 mock tests + real-API integration tests)
-python -m pytest tests/ -v          # Mock LLM suite (126 tests, no API needed)
+# Testing (mock tests + real-API integration tests)
+python -m pytest tests/ -v          # Mock LLM suite (no API needed)
 python scripts/integration_test_real.py           # Real-API full suite (6 tests)
 python scripts/integration_test_real.py --quick   # Real-API: single-agent only
 python scripts/integration_test_real.py --workflow  # Real-API: LangGraph workflow only
@@ -75,10 +76,10 @@ LLM_MODEL=deepseek-chat                          # or gpt-4o
 LLM_BASE_URL=https://api.deepseek.com/v1         # omit for OpenAI
 LLM_API_KEY=sk-your-key-here
 
-# LangSmith tracing (optional, recommended)
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=lsv2_pt_your-key
-LANGCHAIN_PROJECT=ai-learning-loop
+# LangSmith tracing (optional; uncomment only with a real LangSmith key)
+# LANGCHAIN_TRACING_V2=true
+# LANGCHAIN_API_KEY=lsv2_pt_your-key
+# LANGCHAIN_PROJECT=ai-learning-loop
 ```
 
 The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. If neither is configured, `get_chat_model()` emits a `RuntimeWarning` with diagnostic instructions and uses a placeholder key — the real error surfaces when the LLM is first invoked.
@@ -89,7 +90,7 @@ The `LLM_API_KEY` falls back to `OPENAI_API_KEY` if not set. If neither is confi
 |------|---------|
 | `pyproject.toml` | Project metadata, dependencies, ruff/mypy/pyright/pytest config |
 | `run.py` | Universal launcher — `python run.py` from any directory |
-| `requirements.txt` | Runtime dependencies (minimum version constraints) |
+| `requirements.txt` | Runtime dependencies only (minimum version constraints; no dev tools) |
 | `requirements-lock.txt` | Pinned dependency versions for reproducible deployments |
 
 ## Architecture: Four-Layer Separation
@@ -105,7 +106,7 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 
 **`env.py`** — `setup_environment(project_root, *, change_cwd, verbose)` — unified entry point for sys.path setup, `.env` loading, and optional cwd change. Used by `run.py` and all `scripts/*.py` to eliminate triplicate initialization code.
 
-**`state.py`** — `AgentState(TypedDict)` with 11 fields (6 persistent + 5 round-cache), plus `NodeOutput = dict[str, object]` for node return types:
+**`state.py`** — `AgentState(TypedDict)` with 11 fields (6 persistent + 5 round-cache), plus `NodeOutput = dict[str, object]` for node return types. Also exports `make_initial_state(thesis)` — the single authoritative entry-state factory used by UI, scripts, and tests — and `validate_state_shape(state)` — runtime guard that rejects incomplete states before agent nodes.
 
 | Group | Fields | Purpose |
 |-------|--------|---------|
@@ -123,7 +124,7 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 - `REFEREE_SYSTEM_PROMPT` / `referee_prompt(current_thesis, draft_thesis, confirmed_thesis, round_num, history_summary)` — Cognitive accumulator: layers new insights onto the existing thesis (accretion, not replacement). Silent during normal rounds (JSON-only output for internal routing). JSON format description removed from prompt — `with_structured_output` handles schema enforcement.
 - `FINAL_SUMMARY_PROMPT` / `final_summary_prompt(initial_thesis, final_thesis, history_json)` — End-of-debate summary: traces how the thesis grew layer by layer.
 
-**`model.py`** — `get_chat_model(temperature)` reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` from env and returns a configured `ChatOpenAI`. If no API key is found, emits a `RuntimeWarning` with diagnostic instructions. Adding a new provider is a `.env` change, never a code change.
+**`model.py`** — `ModelConfig` dataclass captures model name, base URL, and API key. `load_model_config(env)` parses environment into a `ModelConfig` (treating `sk-not-configured` placeholder as missing). `has_configured_api_key(env)` provides centralized API-key detection shared by UI, scripts, and the model factory. `get_chat_model(temperature)` builds `ChatOpenAI` from the config. Adding a new provider is a `.env` change, never a code change.
 
 ### 2. `agents/` — Stateless Pure Functions
 
@@ -140,7 +141,7 @@ core/{env,state,schemas,prompts,model}.py     ← System contracts all layers de
 Each agent is split into **compute + interact** nodes to prevent LLM re-execution on `interrupt()` resume:
 - `opponent_compute_node` / `opponent_interact_node` (含 `interrupt()`) — Attacks thesis boundaries/assumptions
 - `presenter_compute_node` / `presenter_interact_node` (含 `interrupt()`) — Refines user responses into precise thesis statements
-- `referee_deliberate_node(state, model=None, *, json_mode=False)` — Layers new cognitive insights onto thesis (silent unless terminating). Supports two strategies: `with_structured_output` (default, OpenAI) and JSON-mode manual parsing (`json_mode=True`, DeepSeek).
+- `referee_deliberate_node(state, model=None, *, json_mode=False)` — Layers new cognitive insights onto thesis (silent unless terminating). Supports two strategies: `with_structured_output` (default, OpenAI) and JSON-mode manual parsing (`json_mode=True`, DeepSeek). Internal helpers `_build_round_record()` and `_dump_round_record()` handle archive construction and RoundRecord/dict normalization, eliminating duplicated type-ignores.
 
 Compute nodes call LLM and return results. Interact nodes read cached results and call `interrupt()` for human input. On resume, interact nodes re-execute but only do idempotent state reads — no LLM re-invocation.
 
@@ -178,16 +179,18 @@ Two separate state stores:
 - **`st.session_state`**: UI metadata only (`thread_id`, `graph`, `api_key`, `initial_thesis_input`, `debate_started`)
 - **LangGraph `MemorySaver`**: actual debate state, read-only via `graph.get_state(config)`
 
-`setup_environment()` from `core/env.py` handles `.env` loading **before** any LangChain/LangGraph imports — this ordering is deliberate (enables `LANGCHAIN_TRACING_V2`).
+`setup_environment()` from `core/env.py` handles `.env` loading **before** any LangChain/LangGraph imports — this ordering is deliberate (enables `LANGCHAIN_TRACING_V2`). API key detection delegates to `core.model.has_configured_api_key()`, and env override side effects are concentrated in `_apply_api_key_override()` / `_apply_model_override()`.
 
 Flow: `graph.invoke(initial_state, config)` → runs until first `interrupt()` → UI shows critique/draft input → user submits → `graph.invoke(Command(resume=user_input), config)` → runs until next interrupt or END.
 
 Key UI functions:
+- `_render_sidebar()` — renders API Key config, provider info, model override, initial thesis input, and debate controls
+- `_apply_api_key_override(api_key)` / `_apply_model_override(model, base_url)` — isolated env-mutation helpers
 - `_render_interrupt_ui(status, interrupt_value)` — renders critique response or thesis confirmation UI
 - `_resume_with_input(user_value)` — calls `graph.invoke(Command(resume=user_value), config)`
 - `_get_interrupt_value()` — checks `graph.get_state(config).interrupts` for active interrupt data
 
-## Testing (126 mock tests + 6 real-API tests + ghost probe)
+## Testing (mock tests + 6 real-API tests + ghost probe)
 
 ### Pytest Suite (Mock LLMs, no real API)
 
@@ -199,12 +202,14 @@ Shared test infrastructure:
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `test_agents.py` | 43 | Opponent compute (6), Opponent interact (3), Presenter compute (6), Presenter interact (4), Referee deliberate (9), Interrupt idempotency (2), Edge cases (13) — model=None path, empty/blank/non-string LLM responses, dict-format history from checkpoint, large round numbers |
-| `test_workflow.py` | 21 | Start/next_round scheduling, conditional routing (all 7 status values), graph compilation, export_graph PNG, missing/unknown status routing, build_graph without checkpointer |
+| `test_agents.py` | 55 | Opponent compute (6), Opponent interact (3), Presenter compute (6), Presenter interact (4), Referee deliberate (9), Interrupt idempotency (2), Edge cases (13) — model=None path, empty/blank/non-string LLM responses, dict-format history from checkpoint, large round numbers, referee JSON extraction/summary helpers (12) |
+| `test_workflow.py` | 22 | Start/next_round scheduling, conditional routing (all 7 status values), graph compilation, export_graph PNG, missing/unknown status routing, build_graph without checkpointer, state validation at entry |
 | `test_integration.py` | 5 | Single-round lifecycle (2 interrupts), multi-round thesis evolution, state survives interrupt, no message duplication on resume |
 | `test_interfaces.py` | 28 | Prompt injection (4+4), node output key validation (6, now covers all 3 nodes), Pydantic serialization round-trip (2, RefereeJudgment + RoundRecord), checkpoint fidelity (2), routing correctness (3+2), state merge safety (1), extra='forbid' validation (1) |
-| `test_model.py` | 16 | `get_chat_model()` full branch coverage: defaults, env var overrides, API key fallback, missing key warning, empty string → None, temperature parameter |
-| `test_smoke.py` | 13 | Module imports (4), model factory (2), graph compilation with real nodes (2), prompt validity (2), state factory (1), end-to-end assembly to first interrupt (1), export_graph with real nodes (1) |
+| `test_model.py` | 22 | `get_chat_model()` full branch coverage + `load_model_config()` + `has_configured_api_key()` — defaults, env var overrides, API key fallback, missing key warning, empty string → None, placeholder treated as missing, temperature parameter |
+| `test_smoke.py` | 20 | Module imports (5), model factory (2), graph compilation with real nodes (2), prompt validity (2), state factory + validation (5), sidebar config behavior (2), end-to-end assembly to first interrupt (1), export_graph with real nodes (1) |
+| `test_base.py` | 6 | Retry classification (`_is_retryable`: timeout, rate-limit, non-retryable) + retry loop behavior (success after retry, non-retryable bail, budget exhaust with backoff) |
+| `test_scripts.py` | 1 | Ghost probe structured-output probe against current `RefereeJudgment` schema contract |
 
 All tests use Mock LLMs — no real API calls required.
 
@@ -242,10 +247,13 @@ Run with `python scripts/ghost_probe.py` (full) or `--quick` (env + connectivity
 ## Key Design Decisions
 
 - **Compute/Interact split**: Each agent with an `interrupt()` is split into compute (LLM) + interact (human I/O) nodes. This prevents LLM re-execution on resume — compute nodes complete fully and are checkpointed before the interact node starts.
-- **Shared LLM utilities (`agents/_base.py`)**: `extract_content()`, `make_message()`, `invoke_llm()`, and `invoke_with_retry()` eliminate 3×/6×/2× code duplication across opponent, presenter, and referee nodes. All LLM calls go through `invoke_with_retry()` which retries on transient errors (network/timeout/rate-limit) up to 3 times with exponential backoff.
+- **Shared LLM utilities (`agents/_base.py`)**: `extract_content()`, `make_message()`, `invoke_llm()`, `invoke_with_retry()`, and `_is_retryable()` eliminate 3×/6×/2× code duplication across opponent, presenter, and referee nodes. All LLM calls go through `invoke_with_retry()` which retries on transient errors (network/timeout/rate-limit) up to 3 times with exponential backoff.
+- **Centralized API key detection**: `core.model` provides `load_model_config(env)` → `ModelConfig` and `has_configured_api_key(env)` so UI, scripts, and the model factory all share the same logic for deciding whether a real API key is configured. The `sk-not-configured` placeholder is consistently treated as missing.
+- **State factory + runtime validation**: `core.state.make_initial_state(thesis)` is the single authoritative entry-state factory used by UI, scripts, and tests. `validate_state_shape(state)` is called at workflow entry (`_start_node`) so malformed initial states fail before reaching agent nodes.
 - **Accretive thesis model**: `current_thesis` grows by accretion, not replacement. The referee layers new cognitive insights (boundaries, scope limits, operational definitions) onto the original core claim. Original thesis: one sentence → final thesis: one paragraph. Core claim preserved; wording may be微调 for coherence.
 - **Referee silence during normal rounds**: Referee does NOT produce user-visible messages when `continue_debate=True`. It only updates `current_thesis` and routes. `reasoning` / `improvement_hint` are internal fields — `improvement_hint` is fed forward to the next round's opponent via the `_improvement_hint` cache field, creating a closed feedback loop.
 - **Referee dual strategy**: The referee supports two output strategies selectable via `json_mode` parameter: (a) `with_structured_output(RefereeJudgment)` — native OpenAI tool-calling, (b) JSON-mode prompting + regex extraction + Pydantic validation — DeepSeek and other providers without `response_format` support. Both strategies live in `agents/referee.py`; the integration test uses `json_mode=True`.
+- **Referee helper extraction**: `_build_round_record()` constructs `RoundRecord` from state + judgment, `_dump_round_record()` normalizes `RoundRecord | dict` for JSON serialization and history summary. Both reduce `type: ignore` noise and god-node complexity.
 - **Opponent attacks boundaries, not truth**: Philosophy — truth is concrete and conditional (materialist dialectics). The opponent attacks the thesis's weakest boundary or unstated assumption, not its core truth value. Three strategies: logical vulnerability / Socratic boundary-questioning / counterexample falsification. Single-point, ≤80 chars.
 - **Dynamic `interrupt()` only**: No `interrupt_before` configuration. Human interaction happens precisely when an interact node calls `interrupt(value)`, and resumes with `Command(resume=user_value)`.
 - **Referee decides when to end**: No `max_rounds`. The referee LLM outputs `continue_debate: bool` via structured output to control the debate lifecycle. Decision criteria: stop when no meaningful new cognitive layers emerge, continue when new distinctions or boundaries are discovered.
@@ -253,11 +261,12 @@ Run with `python scripts/ghost_probe.py` (full) or `--quick` (env + connectivity
 - **Only `next_round_node` touches `round`**: Agents never increment the round counter — pure scheduling concern.
 - **Provider-agnostic typing**: All agent function signatures use `BaseChatModel` (from `langchain_core.language_models`), not `ChatOpenAI`. Adding a non-OpenAI provider is purely a `.env` and type-system change.
 - **Schemas enforce strict validation**: `_StrictModel` base class with `ConfigDict(extra='forbid')` ensures Pydantic models reject unknown fields. `round` field removed from `RefereeJudgment` — it was always overwritten by code and never consumed from LLM output.
-- **Unified environment initialization**: `core/env.py` provides `setup_environment()` as the single entry point for sys.path setup, `.env` loading, and cwd management. All entry points (`run.py`, `scripts/*.py`) delegate to it.
-- **Shared test infrastructure**: `tests/helpers.py` and `tests/mock_nodes.py` eliminate quadruple duplication of state factories and mock agent nodes across 5 test files.
+- **Unified environment initialization**: `core/env.py` provides `setup_environment()` as the single entry point for sys.path setup, `.env` loading, and cwd management. All entry points (`run.py`, `scripts/*.py`, `ui/app.py`) delegate to it.
+- **Shared test infrastructure**: `tests/helpers.py` and `tests/mock_nodes.py` eliminate quadruple duplication of state factories and mock agent nodes across test files. `tests/helpers.make_initial_state()` delegates to `core.state.make_initial_state()`.
 - **`checkpointer` is injected at graph build time**: `build_graph()` accepts it as a parameter and passes it to `workflow.compile()`.
 - **Multi-provider via env vars**: `get_chat_model()` reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY`. Adding a new provider is a `.env` edit, never a code change.
 - **Static analysis enforced**: Ruff (lint), pyright (strict mode), and mypy all pass with zero issues across the entire project.
+- **CI gate** (`.github/workflows/ci.yml`): push/PR triggers automatic pytest + ruff + pyright + mypy without real API keys.
 
 ## Adding a New Provider
 

@@ -11,7 +11,8 @@ LangGraph 要求状态可序列化，因此字段类型限定为：
 2. 轮次缓存字段（_ 前缀）：仅当前轮次有效，由 next_round 节点清空
 """
 
-from typing import Literal, TypedDict
+from collections.abc import Mapping
+from typing import Literal, TypedDict, cast
 
 from core.schemas import RoundRecord
 
@@ -90,6 +91,41 @@ class AgentState(TypedDict):
     """[轮次缓存] 裁判对下一轮批判方向的指引。
     由 referee_deliberate 写入（来自 RefereeJudgment.improvement_hint），
     opponent_compute 读取后传入 opponent_prompt()，由 _next_round_node 清除。"""
+
+
+def validate_state_shape(state: object) -> AgentState:
+    """校验 state 包含 AgentState 定义的所有字段。
+
+    这是轻量运行时护栏：只校验字段存在性，不做深层类型验证。
+    """
+    if not isinstance(state, Mapping):
+        raise TypeError(f"AgentState 必须是 Mapping，实际: {type(state).__name__}")
+
+    missing = set(AgentState.__annotations__) - set(state)
+    if missing:
+        missing_keys = ", ".join(sorted(missing))
+        raise KeyError(f"AgentState 缺少字段: {missing_keys}")
+    return cast(AgentState, state)
+
+
+def make_initial_state(thesis: str) -> AgentState:
+    """构造工作流入口使用的完整初始 AgentState。
+
+    所有入口（UI、脚本、测试）都应复用此工厂，避免手写 dict 漂移。
+    """
+    return cast(AgentState, {
+        "current_thesis": thesis,
+        "round": 1,
+        "status": "idle",
+        "messages": [],
+        "history": [],
+        "final_result": "",
+        "_critique": "",
+        "_user_response": "",
+        "_draft_thesis": "",
+        "_confirmed_thesis": "",
+        "_improvement_hint": "",
+    })
 
 
 #: LangGraph 节点函数的返回类型 —— 部分状态更新字典。

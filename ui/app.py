@@ -14,16 +14,11 @@ Streamlit 展现层 —— 纯渲染与输入收集。
 # ruff: noqa: E402
 from pathlib import Path
 
-from dotenv import load_dotenv
+from core.env import setup_environment
 
-# 从脚本所在位置向上查找项目根目录的 .env，
-# 确保无论从哪个目录启动 streamlit run 都能正确加载环境变量。
+# 从脚本所在位置定位项目根目录，复用统一环境初始化入口。
 _project_root = Path(__file__).resolve().parent.parent
-_env_path = _project_root / ".env"
-if _env_path.exists():
-    load_dotenv(_env_path)
-else:
-    load_dotenv()  # fallback: 尝试 cwd 或父目录自动搜索
+setup_environment(_project_root, verbose=False)
 
 import os
 from typing import cast
@@ -37,8 +32,9 @@ from langgraph.types import Command
 from agents.opponent import opponent_compute_node, opponent_interact_node
 from agents.presenter import presenter_compute_node, presenter_interact_node
 from agents.referee import referee_deliberate_node
+from core.model import has_configured_api_key
 from core.schemas import RefereeJudgment
-from core.state import AgentState
+from core.state import AgentState, make_initial_state
 from workflow.graph import build_graph
 
 # =============================================================================
@@ -57,14 +53,28 @@ st.set_page_config(
 # =============================================================================
 
 
+def _apply_api_key_override(api_key: str) -> None:
+    """应用侧边栏临时 API Key 覆盖（仅当前进程/会话有效）。"""
+    st.session_state["api_key"] = api_key
+    os.environ["LLM_API_KEY"] = api_key
+    os.environ["OPENAI_API_KEY"] = api_key
+
+
+
+def _apply_model_override(model: str, base_url: str) -> None:
+    """应用侧边栏临时模型端点覆盖（仅当前进程/会话有效）。"""
+    os.environ["LLM_MODEL"] = model
+    os.environ["LLM_BASE_URL"] = base_url
+
+
+
 def _render_sidebar() -> None:
     """渲染侧边栏：API Key 配置与初始论题。"""
     # ---- 读取 .env 中的配置状态 ----
     env_model = os.getenv("LLM_MODEL", "")
     env_base = os.getenv("LLM_BASE_URL", "")
     env_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    _placeholder_key = "sk-not-configured"
-    env_configured = bool(env_key and env_key != _placeholder_key)
+    env_configured = has_configured_api_key()
 
     if not env_configured or not env_model:
         provider_label = ""
@@ -99,9 +109,7 @@ def _render_sidebar() -> None:
                     help="支持 DeepSeek / OpenAI / 硅基流动 等。",
                 )
                 if api_key:
-                    st.session_state["api_key"] = api_key
-                    os.environ["LLM_API_KEY"] = api_key
-                    os.environ["OPENAI_API_KEY"] = api_key
+                    _apply_api_key_override(api_key)
                     st.info("已覆盖，本次会话生效。")
         else:
             st.warning("⚠️ 未检测到 .env 配置")
@@ -113,9 +121,7 @@ def _render_sidebar() -> None:
                 help="支持 DeepSeek / OpenAI / 硅基流动 等。仅本次会话有效。",
             )
             if api_key:
-                st.session_state["api_key"] = api_key
-                os.environ["LLM_API_KEY"] = api_key
-                os.environ["OPENAI_API_KEY"] = api_key
+                _apply_api_key_override(api_key)
 
             with st.expander("🛠️ 高级模型设置（可选）"):
                 st.caption("自定义模型与端点，覆盖默认值。")
@@ -126,8 +132,7 @@ def _render_sidebar() -> None:
                     "Base URL", value="https://api.deepseek.com/v1", key="custom_base",
                 )
                 if st.button("应用模型设置"):
-                    os.environ["LLM_MODEL"] = custom_model
-                    os.environ["LLM_BASE_URL"] = custom_base
+                    _apply_model_override(custom_model, custom_base)
                     st.success(f"已切换至 {custom_model}")
                     st.rerun()
 
@@ -158,10 +163,7 @@ def _render_sidebar() -> None:
             if st.button("🔄 重置", use_container_width=True):
                 _on_reset()
 
-        has_any_key = bool(
-            st.session_state.get("api_key")
-            or (env_key and env_key != _placeholder_key)
-        )
+        has_any_key = bool(st.session_state.get("api_key") or env_configured)
         if not has_any_key:
             st.warning("请先配置 LLM API Key（.env 或侧边栏均可）")
 
@@ -173,10 +175,8 @@ def _render_sidebar() -> None:
 
 def _on_start_debate(initial_thesis: str) -> None:
     """开始辩论：初始化 graph state 并执行到第一个中断点。"""
-    _placeholder_key = "sk-not-configured"
     api_key = st.session_state.get("api_key", "")
-    env_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    has_key = bool(api_key) or bool(env_key and env_key != _placeholder_key)
+    has_key = bool(api_key) or has_configured_api_key()
     if not has_key:
         st.error("请先配置 LLM API Key（在项目 .env 文件中或侧边栏输入均可）")
         return
@@ -197,19 +197,7 @@ def _on_start_debate(initial_thesis: str) -> None:
     st.session_state["checkpointer"] = checkpointer
     st.session_state["graph"] = graph
 
-    initial_state: AgentState = {
-        "current_thesis": initial_thesis,
-        "round": 1,
-        "status": "idle",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-    }
+    initial_state: AgentState = make_initial_state(initial_thesis)
 
     config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
     graph.invoke(initial_state, config)

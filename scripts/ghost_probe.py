@@ -24,6 +24,7 @@ from core.env import setup_environment  # noqa: E402
 
 setup_environment(_project_root)
 
+from core.model import has_configured_api_key  # noqa: E402
 
 # =============================================================================
 # 辅助函数
@@ -57,8 +58,7 @@ def _skip(detail: str) -> None:
 
 def _has_api_key() -> bool:
     """检查是否配置了 API Key。"""
-    key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
-    return bool(key) and key != "sk-not-configured"
+    return has_configured_api_key()
 
 
 def _get_model_info() -> dict:
@@ -136,11 +136,11 @@ def probe_structured_output() -> bool:
 
         judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
 
-        # 验证字段完整性
-        assert isinstance(judgment.round, int), f"round 应为 int，实际: {type(judgment.round)}"
+        # 验证字段完整性（round 由工作流状态管理，不属于 RefereeJudgment 契约）
         assert isinstance(judgment.continue_debate, bool), "continue_debate 应为 bool"
         assert isinstance(judgment.new_thesis, str) and len(judgment.new_thesis) > 0
         assert isinstance(judgment.reasoning, str) and len(judgment.reasoning) > 0
+        assert isinstance(judgment.improvement_hint, str), "improvement_hint 应为 str"
 
         _pass(
             f"延迟 {elapsed:.2f}s, "
@@ -391,8 +391,16 @@ def probe_environment() -> bool:
     # Python 版本
     print(f"  Python:     {sys.version.split()[0]}")
 
-    # 依赖检查
-    deps = ["langgraph", "langchain_openai", "streamlit", "pydantic"]
+    # 依赖检查（覆盖 pyproject.toml 的运行时依赖）
+    deps = [
+        "dotenv",
+        "langchain",
+        "langchain_core",
+        "langchain_openai",
+        "langgraph",
+        "pydantic",
+        "streamlit",
+    ]
     for dep in deps:
         try:
             __import__(dep)

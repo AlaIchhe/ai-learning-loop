@@ -664,6 +664,95 @@ class TestRefereeEdgeCases:
         assert len(result["history"]) == 2
         assert result["history"][1].round_number == 2
 
+    def test_done_with_dict_history_generates_final_summary(self):
+        """终局总结应兼容 checkpoint 恢复后的 dict 格式 history。"""
+        state = make_state(
+            history=[{
+                "round_number": 1,
+                "thesis_before": "初始论题",
+                "critique": "旧批判",
+                "user_response": "旧回应",
+                "draft_thesis": "旧草稿",
+                "confirmed_thesis": "旧确认",
+                "thesis_after": "旧拼合",
+                "continue_debate": True,
+                "referee_reasoning": "继续",
+            }],
+            round=2,
+            current_thesis="旧拼合",
+            _critique="c2",
+            _user_response="u2",
+            _draft_thesis="d2",
+            _confirmed_thesis="cf2",
+        )
+        judgment = self._make_judgment(
+            continue_debate=False,
+            new_thesis="最终论题",
+            reasoning="可以结束。",
+        )
+        model = _make_mock_referee_model(judgment)
+
+        result = referee_deliberate_node(state, model=model)
+
+        assert result["status"] == "done"
+        assert result["final_result"] == "最终总结报告。"
+        assert len(result["history"]) == 2
+
+    def test_extract_json_from_plain_json(self):
+        """_extract_json 支持直接解析 JSON 对象。"""
+        from agents.referee import _extract_json
+
+        result = _extract_json('{"continue_debate": true, "new_thesis": "论题"}')
+        assert result == {"continue_debate": True, "new_thesis": "论题"}
+
+    def test_extract_json_from_markdown_block(self):
+        """_extract_json 支持 Markdown JSON 代码块。"""
+        from agents.referee import _extract_json
+
+        result = _extract_json('说明\n```json\n{"reasoning": "理由"}\n```')
+        assert result == {"reasoning": "理由"}
+
+    def test_extract_json_from_outer_braces(self):
+        """_extract_json 支持从普通文本中提取最外层 JSON 对象。"""
+        from agents.referee import _extract_json
+
+        result = _extract_json('裁判输出如下：{"improvement_hint": "继续收窄边界"}。')
+        assert result == {"improvement_hint": "继续收窄边界"}
+
+    def test_extract_json_returns_none_for_invalid_content(self):
+        """_extract_json 无法解析时返回 None。"""
+        from agents.referee import _extract_json
+
+        assert _extract_json("这不是 JSON") is None
+
+    def test_build_history_summary_accepts_round_record_and_dict(self):
+        """_build_history_summary 兼容 RoundRecord 与 checkpoint dict。"""
+        from agents.referee import _build_history_summary
+
+        first = RoundRecord(
+            round_number=1,
+            thesis_before="初始论题",
+            critique="批判",
+            user_response="回应",
+            draft_thesis="草稿",
+            confirmed_thesis="确认",
+            thesis_after="一轮后论题",
+            continue_debate=True,
+            referee_reasoning="继续",
+        )
+        second = {
+            "round_number": 2,
+            "thesis_before": "一轮后论题",
+            "thesis_after": "二轮后论题",
+            "continue_debate": False,
+        }
+        state = make_state(history=[first, second])
+
+        result = _build_history_summary(state)
+
+        assert "Round 1: 初始论题 -> 一轮后论题 (continue: True)" in result
+        assert "Round 2: 一轮后论题 -> 二轮后论题 (continue: False)" in result
+
     def test_get_initial_thesis_from_dict_history(self):
         """_get_initial_thesis 在 history[0] 为 dict 时正确回退。"""
         from agents.referee import _get_initial_thesis

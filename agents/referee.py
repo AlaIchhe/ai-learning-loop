@@ -22,6 +22,7 @@ Referee 节点 —— 论题拼合者与终局判定者。
 
 import json
 import re
+from collections.abc import Mapping
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -84,20 +85,8 @@ def referee_deliberate_node(
         )
 
     # --- Step 2: 本轮归档 ---
-    round_record = RoundRecord(
-        round_number=state["round"],
-        thesis_before=state["current_thesis"],
-        critique=state["_critique"],
-        user_response=state["_user_response"],
-        draft_thesis=state["_draft_thesis"],
-        confirmed_thesis=state["_confirmed_thesis"],
-        thesis_after=judgment.new_thesis,
-        continue_debate=judgment.continue_debate,
-        referee_reasoning=judgment.reasoning,
-    )
-
     result: dict = {
-        "history": state["history"] + [round_record],
+        "history": state["history"] + [_build_round_record(state, judgment)],
     }
 
     # --- Step 3: 判定路由 ---
@@ -224,6 +213,21 @@ def _extract_json(text: str) -> dict | None:
 # =============================================================================
 
 
+def _build_round_record(state: AgentState, judgment: RefereeJudgment) -> RoundRecord:
+    """根据当前 state 和裁判裁定构造本轮归档记录。"""
+    return RoundRecord(
+        round_number=state["round"],
+        thesis_before=state["current_thesis"],
+        critique=state["_critique"],
+        user_response=state["_user_response"],
+        draft_thesis=state["_draft_thesis"],
+        confirmed_thesis=state["_confirmed_thesis"],
+        thesis_after=judgment.new_thesis,
+        continue_debate=judgment.continue_debate,
+        referee_reasoning=judgment.reasoning,
+    )
+
+
 def _build_history_summary(state: AgentState) -> str:
     """构建前轮历史摘要（用于终局判定上下文）。
 
@@ -233,12 +237,20 @@ def _build_history_summary(state: AgentState) -> str:
         return ""
     summaries = []
     for r in state["history"]:
-        rn = r.round_number if hasattr(r, "round_number") else r.get("round_number", "?")  # type: ignore[union-attr]
-        tb = r.thesis_before if hasattr(r, "thesis_before") else r.get("thesis_before", "?")  # type: ignore[union-attr]
-        ta = r.thesis_after if hasattr(r, "thesis_after") else r.get("thesis_after", "?")  # type: ignore[union-attr]
-        cb = r.continue_debate if hasattr(r, "continue_debate") else r.get("continue_debate", "?")  # type: ignore[union-attr]
+        record = _dump_round_record(r)
+        rn = record.get("round_number", "?")
+        tb = record.get("thesis_before", "?")
+        ta = record.get("thesis_after", "?")
+        cb = record.get("continue_debate", "?")
         summaries.append(f"Round {rn}: {tb} -> {ta} (continue: {cb})")
     return "\n".join(summaries)
+
+
+def _dump_round_record(record: RoundRecord | Mapping[str, object]) -> dict[str, object]:
+    """将 RoundRecord 或 checkpoint dict 统一转为可 JSON 序列化的 dict。"""
+    if isinstance(record, RoundRecord):
+        return record.model_dump()
+    return dict(record)
 
 
 def _generate_final_summary(
@@ -249,7 +261,7 @@ def _generate_final_summary(
 ) -> str:
     """生成辩论终止时的最终总结报告。"""
     history_json = json.dumps(
-        [r.model_dump() for r in result["history"]],
+        [_dump_round_record(r) for r in result["history"]],
         ensure_ascii=False,
     )
     summary_system = SystemMessage(content=FINAL_SUMMARY_PROMPT)

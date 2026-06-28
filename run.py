@@ -35,10 +35,14 @@ def main() -> None:
         sys.exit(1)
 
     print(f"[init] 启动 Streamlit → {app_path}")
-    subprocess.run(
-        [sys.executable, "-m", "streamlit", "run", str(app_path)],
-        check=False,
-    )
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "streamlit", "run", str(app_path)],
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"错误: Streamlit 启动失败（退出码 {exc.returncode}）")
+        sys.exit(exc.returncode)
 
 
 if __name__ == "__main__":

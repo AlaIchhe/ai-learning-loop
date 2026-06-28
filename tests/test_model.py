@@ -31,6 +31,64 @@ def _call_with_env(env_vars: dict[str, str], temperature: float = 0.7) -> dict:
 
 
 # =============================================================================
+# 配置解析测试
+# =============================================================================
+
+
+class TestLoadModelConfig:
+    """load_model_config() 只解析配置，不构造模型。"""
+
+    def test_loads_defaults_from_mapping(self):
+        from core.model import load_model_config
+
+        config = load_model_config({"OPENAI_API_KEY": "sk-test"})
+
+        assert config.model_name == "gpt-4o"
+        assert config.base_url is None
+        assert config.api_key == "sk-test"
+
+    def test_llm_api_key_has_priority(self):
+        from core.model import load_model_config
+
+        config = load_model_config({
+            "LLM_API_KEY": "sk-primary",
+            "OPENAI_API_KEY": "sk-fallback",
+        })
+
+        assert config.api_key == "sk-primary"
+
+    def test_empty_strings_become_absent_values(self):
+        from core.model import load_model_config
+
+        config = load_model_config({
+            "LLM_MODEL": "deepseek-chat",
+            "LLM_BASE_URL": "",
+            "LLM_API_KEY": "",
+        })
+
+        assert config.model_name == "deepseek-chat"
+        assert config.base_url is None
+        assert config.api_key is None
+
+    def test_placeholder_key_is_treated_as_missing(self):
+        from core.model import load_model_config
+
+        config = load_model_config({"LLM_API_KEY": "sk-not-configured"})
+
+        assert config.api_key is None
+
+    def test_has_configured_api_key_rejects_placeholder(self):
+        from core.model import has_configured_api_key
+
+        assert has_configured_api_key({"LLM_API_KEY": "sk-not-configured"}) is False
+
+    def test_has_configured_api_key_accepts_real_key(self):
+        from core.model import has_configured_api_key
+
+        assert has_configured_api_key({"LLM_API_KEY": "sk-real"}) is True
+
+
+# =============================================================================
 # 默认值 / 基本行为测试
 # =============================================================================
 
