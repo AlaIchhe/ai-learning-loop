@@ -520,7 +520,9 @@ class TestOpponentEdgeCases:
             mock_get.return_value = mock_model
             result = opponent_compute_node(state, model=None)
         assert "_critique" in result
-        mock_get.assert_called_once_with(temperature=0.7)
+        mock_get.assert_called_once_with(
+            temperature=0.7, model_name=None, base_url=None,
+        )
 
     def test_empty_llm_response_handled(self):
         """LLM 返回空字符串时不崩溃。"""
@@ -577,7 +579,9 @@ class TestPresenterEdgeCases:
             mock_get.return_value = mock_model
             result = presenter_compute_node(state, model=None)
         assert "_draft_thesis" in result
-        mock_get.assert_called_once_with(temperature=0.7)
+        mock_get.assert_called_once_with(
+            temperature=0.7, model_name=None, base_url=None,
+        )
 
     def test_empty_llm_response_handled(self):
         """LLM 返回空字符串时不崩溃。"""
@@ -635,7 +639,9 @@ class TestRefereeEdgeCases:
             mock_get.return_value = mock_model
             result = referee_deliberate_node(state, model=None)
         assert "status" in result
-        mock_get.assert_called_once_with(temperature=0.0)
+        mock_get.assert_called_once_with(
+            temperature=0.0, model_name=None, base_url=None,
+        )
 
     def test_dict_format_history_from_checkpoint(self):
         """checkpoint 恢复后 history 元素为 dict（非 Pydantic）时兼容。"""

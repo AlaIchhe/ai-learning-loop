@@ -54,7 +54,12 @@ def has_configured_api_key(env: Mapping[str, object] | None = None) -> bool:
     return load_model_config(env).api_key is not None
 
 
-def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
+def get_chat_model(
+    temperature: float = 0.7,
+    *,
+    model_name: str | None = None,
+    base_url: str | None = None,
+) -> ChatOpenAI:
     """创建 ChatOpenAI 实例。
 
     通过环境变量切换供应商：
@@ -75,6 +80,8 @@ def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
 
     Args:
         temperature: 0.0 用于裁判（确定性评分），0.7 用于陈述者和反驳者。
+        model_name: 可选的模型名覆盖（per-tab 配置，优先级高于环境变量）。
+        base_url: 可选的端点覆盖（per-tab 配置，优先级高于环境变量）。
 
     Returns:
         配置好的 ChatOpenAI 实例。
@@ -93,8 +100,9 @@ def get_chat_model(temperature: float = 0.7) -> ChatOpenAI:
         api_key = _PLACEHOLDER_API_KEY
 
     return ChatOpenAI(
-        model=config.model_name,
+        model=model_name or config.model_name,
         temperature=temperature,
-        base_url=config.base_url,
+        base_url=base_url if base_url is not None else config.base_url,
         api_key=api_key,  # type: ignore[arg-type]  # langchain 类型桩使用 SecretStr
+        streaming=True,  # 启用 token 级回调，供 graph.stream(mode="messages") 使用
     )

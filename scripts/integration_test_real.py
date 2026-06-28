@@ -195,6 +195,7 @@ def test_referee_agent() -> bool:
     state: AgentState = {
         "current_thesis": "AI应受监管。",
         "round": 1,
+        "agent_temperature": 0.7,
         "status": "referee_deliberating",
         "messages": [],
         "history": [],

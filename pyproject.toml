@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-learning-loop"
 version = "1.0.0"
-description = "多智能体辩论学习系统 —— 基于 LangGraph 的三智能体对抗与精炼模型"
+description = "苏格拉底式学习引导系统 —— 基于 LangGraph 的三智能体苏格拉底式提问与认知深化模型"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"

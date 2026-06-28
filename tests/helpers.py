@@ -25,6 +25,7 @@ def make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgu
     defaults: AgentState = {
         "current_thesis": "人工智能应该被严格监管以确保安全性。",
         "round": 1,
+        "agent_temperature": 0.7,
         "status": "opponent_computing",
         "messages": [],
         "history": [],
@@ -34,6 +35,9 @@ def make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgu
         "_draft_thesis": "",
         "_confirmed_thesis": "",
         "_improvement_hint": "",
+        "_model_name": "",
+        "_model_base_url": "",
+        "max_rounds": 10,
     }
     return cast(AgentState, {**defaults, **overrides})
 

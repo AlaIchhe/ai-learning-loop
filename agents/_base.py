@@ -7,6 +7,7 @@ Agent 节点共享基础工具 —— 消除 Compute/Interact 节点间的模板
 3. 所有函数无副作用，不访问全局状态。
 """
 
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from collections.abc import Callable
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from core.logging import TraceLogger
 from core.model import get_chat_model
 from core.state import AgentState
 
@@ -84,6 +86,8 @@ def invoke_with_retry(
     messages: list,
     *,
     label: str = "LLM",
+    on_retry: Callable[[int, int, float, Exception], None] | None = None,
+    trace: TraceLogger | None = None,
 ) -> BaseMessage:
     """调用 invocable.invoke(messages)，失败时自动重试。
 
@@ -93,6 +97,9 @@ def invoke_with_retry(
         invocable: 可调用 .invoke(messages) 的对象（BaseChatModel 或 structured model）。
         messages: 消息列表。
         label: 日志标签（用于区分不同调用点）。
+        on_retry: 可选回调，签名 (attempt, max_retries, wait_seconds, exception) -> None。
+                  在每次重试前调用，用于向 UI 层报告重试进度。
+        trace: 可选的 TraceLogger，用于记录 LLM 调用耗时与结果。
 
     Returns:
         invocable.invoke() 的原始返回值。
@@ -100,22 +107,44 @@ def invoke_with_retry(
     Raises:
         最后一次尝试的异常（重试耗尽后）。
     """
+    retry_count = 0
     last_error: Exception | None = None
+
+    # 记录 LLM 调用开始
+    model_name = getattr(invocable, "model_name", "unknown")
+    if trace:
+        trace.llm_call_start(model=model_name, label=label)
+
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            return invocable.invoke(messages)
+            result = invocable.invoke(messages)
+            if trace:
+                trace.llm_call_end(success=True, retry_count=retry_count)
+            return result
         except Exception as exc:
             last_error = exc
+            retry_count += 1
             if not _is_retryable(exc) or attempt == _MAX_RETRIES:
+                if trace:
+                    trace.llm_call_end(
+                        success=False,
+                        retry_count=retry_count,
+                        error=str(exc)[:200],
+                    )
                 raise
             wait = _RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
             logger.warning(
                 "%s 调用失败（第 %d/%d 次），%s 秒后重试: %s",
                 label, attempt, _MAX_RETRIES, wait, exc,
             )
+            if on_retry:
+                with contextlib.suppress(Exception):
+                    on_retry(attempt, _MAX_RETRIES, wait, exc)
             time.sleep(wait)
 
     assert last_error is not None
+    if trace:
+        trace.llm_call_end(success=False, retry_count=retry_count, error="unreachable")
     raise last_error
 
 
@@ -124,6 +153,11 @@ def invoke_llm(
     temperature: float,
     system_prompt: str,
     user_prompt: str,
+    *,
+    on_retry: Callable[[int, int, float, Exception], None] | None = None,
+    trace: TraceLogger | None = None,
+    model_name: str | None = None,
+    model_base_url: str | None = None,
 ) -> str:
     """调用 LLM 并返回提取后的文本内容（含自动重试）。
 
@@ -134,12 +168,20 @@ def invoke_llm(
         temperature: LLM 温度参数（0.0 = 确定性，0.7 = 创造性）。
         system_prompt: 系统提示。
         user_prompt: 用户提示。
+        on_retry: 可选的重试进度回调。
+        trace: 可选的 TraceLogger。
+        model_name: 可选的模型名覆盖（per-tab 配置）。
+        model_base_url: 可选的模型端点覆盖（per-tab 配置）。
 
     Returns:
         LLM 响应文本（已 strip）。
     """
     if model is None:
-        model = get_chat_model(temperature=temperature)
+        model = get_chat_model(
+            temperature=temperature,
+            model_name=model_name,
+            base_url=model_base_url,
+        )
 
     response = invoke_with_retry(
         model,
@@ -148,6 +190,8 @@ def invoke_llm(
             HumanMessage(content=user_prompt),
         ],
         label="LLM",
+        on_retry=on_retry,
+        trace=trace,
     )
     return extract_content(response).strip()
 

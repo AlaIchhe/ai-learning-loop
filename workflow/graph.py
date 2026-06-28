@@ -56,6 +56,7 @@ def _next_round_node(state: AgentState) -> dict:
     """轮次推进节点：round+1，清空本轮缓存，准备下一轮。
 
     这是纯调度逻辑，不涉及任何 LLM。
+    注意：_model_name / _model_base_url 是 per-tab 持久配置，不清除。
     """
     return {
         "round": state["round"] + 1,
@@ -77,10 +78,17 @@ def _route_after_referee(state: AgentState) -> str:
 
     依据 state["status"] 判定：
     - "done"                  → 辩论结束，流向 END
+    - 达到 max_rounds         → 强制终止，流向 END（安全阀）
     - "opponent_computing"    → 继续下一轮
     """
     if state["status"] == "done":
         return END
+
+    # 安全阀：达到最大轮次强制终止，防止异常状态下无限循环
+    max_rounds = state.get("max_rounds", 10)
+    if state["round"] >= max_rounds:
+        return END
+
     return "next_round"
 
 

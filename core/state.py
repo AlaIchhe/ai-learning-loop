@@ -35,6 +35,9 @@ class AgentState(TypedDict):
     round: int
     """当前轮次编号（从 1 开始）。"""
 
+    agent_temperature: float
+    """Opponent 和 Presenter 的 LLM 温度（0.0-1.5）。Referee 始终使用 0.0。"""
+
     status: Literal[
         "idle",
         "opponent_computing",
@@ -92,6 +95,17 @@ class AgentState(TypedDict):
     由 referee_deliberate 写入（来自 RefereeJudgment.improvement_hint），
     opponent_compute 读取后传入 opponent_prompt()，由 _next_round_node 清除。"""
 
+    _model_name: str
+    """[持久] Per-tab 模型名覆盖。在辩论启动时从侧边栏捕获，优先级高于全局环境变量。
+    由 make_initial_state() 注入，agent compute 节点读取后传给 get_chat_model()。"""
+
+    _model_base_url: str
+    """[持久] Per-tab 模型端点覆盖。在辩论启动时从侧边栏捕获。"""
+
+    max_rounds: int
+    """[持久] 最大轮次安全阀。达到此轮次后 _route_after_referee 强制终止辩论。
+    由 make_initial_state() 在辩论启动时从侧边栏捕获，默认 10。"""
+
 
 def validate_state_shape(state: object) -> AgentState:
     """校验 state 包含 AgentState 定义的所有字段。
@@ -108,14 +122,29 @@ def validate_state_shape(state: object) -> AgentState:
     return cast(AgentState, state)
 
 
-def make_initial_state(thesis: str) -> AgentState:
+def make_initial_state(
+    thesis: str,
+    *,
+    agent_temperature: float = 0.7,
+    model_name: str = "",
+    model_base_url: str = "",
+    max_rounds: int = 10,
+) -> AgentState:
     """构造工作流入口使用的完整初始 AgentState。
 
     所有入口（UI、脚本、测试）都应复用此工厂，避免手写 dict 漂移。
+
+    Args:
+        thesis: 初始论题文本。
+        agent_temperature: Opponent/Presenter 的 LLM 温度。
+        model_name: Per-tab 模型名覆盖（空串 = 使用全局环境变量）。
+        model_base_url: Per-tab 端点覆盖（空串 = 使用全局环境变量）。
+        max_rounds: 最大轮次安全阀（默认 10）。
     """
     return cast(AgentState, {
         "current_thesis": thesis,
         "round": 1,
+        "agent_temperature": agent_temperature,
         "status": "idle",
         "messages": [],
         "history": [],
@@ -125,6 +154,9 @@ def make_initial_state(thesis: str) -> AgentState:
         "_draft_thesis": "",
         "_confirmed_thesis": "",
         "_improvement_hint": "",
+        "_model_name": model_name,
+        "_model_base_url": model_base_url,
+        "max_rounds": max_rounds,
     })
 
 

@@ -70,7 +70,11 @@ def referee_deliberate_node(
         - _improvement_hint: str       下一轮批判方向指引（仅 continue 时）
     """
     if model is None:
-        model = get_chat_model(temperature=0.0)
+        model = get_chat_model(
+            temperature=0.0,
+            model_name=state.get("_model_name") or None,
+            base_url=state.get("_model_base_url") or None,
+        )
 
     # --- Step 1: 获取 RefereeJudgment ---
     history_summary = _build_history_summary(state)

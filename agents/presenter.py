@@ -40,13 +40,15 @@ def presenter_compute_node(
     """
     draft = invoke_llm(
         model=model,
-        temperature=0.7,
+        temperature=float(state.get("agent_temperature", 0.7)),
         system_prompt=PRESENTER_SYSTEM_PROMPT,
         user_prompt=presenter_prompt(
             current_thesis=state["current_thesis"],
             critique=state["_critique"],
             user_response=state["_user_response"],
         ),
+        model_name=state.get("_model_name") or None,
+        model_base_url=state.get("_model_base_url") or None,
     )
 
     return {

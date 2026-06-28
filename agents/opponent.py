@@ -39,12 +39,14 @@ def opponent_compute_node(
     """
     critique = invoke_llm(
         model=model,
-        temperature=0.7,
+        temperature=float(state.get("agent_temperature", 0.7)),
         system_prompt=OPPONENT_SYSTEM_PROMPT,
         user_prompt=opponent_prompt(
             current_thesis=state["current_thesis"],
             improvement_hint=state.get("_improvement_hint", ""),
         ),
+        model_name=state.get("_model_name") or None,
+        model_base_url=state.get("_model_base_url") or None,
     )
 
     return {
