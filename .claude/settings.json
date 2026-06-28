@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "condition": "command contains 'pytest'",
+            "command": "python scripts/cleanup.py"
+          }
+        ]
+      }
+    ]
+  }
+}

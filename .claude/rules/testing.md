@@ -28,6 +28,8 @@ Shared infrastructure:
 
 Command: `python -m pytest tests/ -v`
 
+After every pytest invocation, `scripts/cleanup.py` runs automatically via `.claude/settings.json` PostToolUse hook to remove cache dirs, build artifacts, and other generated garbage.
+
 ## Real-API Integration Tests (`scripts/integration_test_real.py`)
 
 6 tests, uses live API keys, DeepSeek-compatible (`json_mode=True`):

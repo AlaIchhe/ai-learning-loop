@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-项目启动器 —— 确保从任意目录启动都能正确加载 .env 并运行 Streamlit。
+项目启动器 —— Reflex 版本。
 
 用法:
-    python run.py                  # 启动 Streamlit 界面
-    python run.py --export-graph   # 导出图架构为 PNG
+    python run.py                  # 启动 Reflex 界面（生产/开发）
+    python run.py --export-graph   # 导出 LangGraph 图架构为 PNG
 
 等价于:
-    streamlit run ui/app.py        # 标准方式
+    reflex run                     # 启动 Reflex
     python -m workflow.graph       # 导出图
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -24,24 +25,21 @@ def main() -> None:
 
     if "--export-graph" in sys.argv:
         from workflow.graph import export_graph
-
         export_graph()
         return
 
-    # 默认：启动 Streamlit 界面
-    app_path = project_root / "ui" / "app.py"
-    if not app_path.exists():
-        print(f"错误: 找不到 {app_path}")
-        sys.exit(1)
+    # 默认：启动 Reflex 界面
+    if "PYTHONUTF8" not in os.environ:
+        os.environ["PYTHONUTF8"] = "1"
 
-    print(f"[init] 启动 Streamlit → {app_path}")
+    print("[init] 启动 Reflex → http://localhost:3003")
     try:
         subprocess.run(
-            [sys.executable, "-m", "streamlit", "run", str(app_path)],
+            [sys.executable, "-m", "reflex", "run"],
             check=True,
         )
     except subprocess.CalledProcessError as exc:
-        print(f"错误: Streamlit 启动失败（退出码 {exc.returncode}）")
+        print(f"错误: Reflex 启动失败（退出码 {exc.returncode}）")
         sys.exit(exc.returncode)
 
 

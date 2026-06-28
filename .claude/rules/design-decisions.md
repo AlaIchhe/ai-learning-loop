@@ -25,15 +25,15 @@ description: 关键设计决策 — Compute/Interact 拆分、拼合式演化、
 - **Multi-provider via ModelStore**: Runtime model selection flows through `core.model_store.ModelStore` (persisted to `.model-config.json`), supporting multiple providers side-by-side with per-tab frozen isolation. Adding a new preset provider is a `ProviderPreset` entry in `core/providers.py`. Env-var path preserved for scripts/backward compatibility (`get_chat_model()` still reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` when called without explicit kwargs).
 - **Static analysis enforced**: Ruff (lint), pyright (strict mode), and mypy all pass with zero issues.
 - **CI gate**: push/PR triggers automatic pytest + ruff + pyright + mypy without real API keys.
-- **Multi-tab via shared graph**: One `MemorySaver` + compiled graph serve all tabs. Each tab gets a unique `thread_id`.
-- **Streaming via flag-based decoupling**: Button callbacks set `pending_start`/`pending_resume` flags; actual `graph.stream()` runs in the main render thread.
+- **Multi-tab via shared graph**: One `MemorySaver` + compiled graph serve all tabs. Each tab gets a unique `thread_id`. Reflex state mirrors active tab via `_sync_active()`.
+- **Streaming via async background tasks**: `@rx_event(background=True)` runs LangGraph streaming in background. Token updates pushed via `async with self` state mutations. No flag-based decoupling needed.
 - **Configurable agent temperature**: `agent_temperature` (0.0–1.5, default 0.7) stored in `AgentState`. Referee stays at 0.0.
-- **Per-tab model config isolation**: Model name/base URL/api key/json_mode frozen per-tab at debate start via `_capture_model_config()`. Sidebar changes only affect newly started debates. True key isolation via `_model_api_key` field (no more `os.environ` mutation).
+- **Per-tab model config isolation**: Model name/base URL/api key/json_mode frozen per-tab at debate start via `_model_cfg()` from `ModelStore.get_active_profile()`. Uses `_model_api_key` field for true key isolation.
 - **Structured logging with trace IDs**: `trace_id_context()` + `TraceLogger` record LLM call timing, retry counts, error records. JSON-lines output format.
-- **Streaming error boundary**: `_run_stream()` categorizes errors (auth/timeout/rate-limit/network/parse) with Chinese-language messages and checkpoint retry.
-- **Tab checkpoint cleanup**: `_close_tab()` removes the tab's `thread_id` from `MemorySaver.storage` to prevent unbounded memory growth.
-- **Provider preset registry**: `core/providers.py` holds pure-data `ProviderPreset` entries (8 built-in: openai/deepseek/siliconflow/tongyi/zhipu/moonshot/ollama/custom). `supports_structured_output=False` triggers automatic JSON-mode for the referee.
-- **Persistent model store**: `core/model_store.ModelStore` atomically saves to `.model-config.json` (gitignored). First-run auto-migration from `.env` via `detect_preset_by_base_url()` heuristics.
-- **Connection test before save**: Adding or editing a provider calls `check_connection()` (stdlib `urllib`) and sets `ProviderEntry.status` to `ok`/`error` with a Chinese diagnostic message.
-- **UI theme system (`ui/style.py` + `ui/style.css` + `.streamlit/config.toml`)**: Three-layer styling architecture. Layer 1: `.streamlit/config.toml` — brand colors, `[theme.light]`/`[theme.dark]` dual themes. Layer 2: `ui/style.css` — custom component styles, animations, dark mode overrides, cursor blink keyframes. Layer 3: Streamlit native component properties. Auto-scroll JavaScript uses `MutationObserver` + user scroll detection. Typing cursor (`▍`) via CSS `@keyframes blink-cursor`. Toast notifications at lifecycle events; `st.balloons()` at completion (per-tab flag guarded). Message timestamps via `datetime.fromtimestamp()` with fallback for legacy messages.
-- **Boy Scout — `make_message()` timestamp**: Now includes `timestamp` field (float, `time.time()`) for UI display — backward compatible.
+- **Streaming error boundary**: `_stream()` catches `GraphInterrupt` for normal pauses, logs other exceptions.
+- **Tab checkpoint cleanup**: `remove_tab()` deletes the tab's `thread_id` from `MemorySaver.storage`.
+- **Provider preset registry**: `core/providers.py` holds pure-data `ProviderPreset` entries (8 built-in). `supports_structured_output=False` triggers automatic JSON-mode.
+- **Persistent model store**: `core/model_store.ModelStore` atomically saves to `.model-config.json`. First-run auto-migration from `.env`.
+- **Connection test before save**: `check_connection()` (stdlib `urllib`) sets `ProviderEntry.status` to `ok`/`error` with Chinese diagnostic message.
+- **UI theme system (`rxweb/styles.py` + `rxweb/assets/fonts.css`)**: Unified CSS-in-Python styling via Reflex `style` prop. Custom message bubbles, animations (`@keyframes blink-cursor`, `messageSlideIn`), sidebar, input area, scrollbar. Dark mode toggle via `AppState.dark_mode`. Typing cursor (`▍`) via CSS class. Auto-scroll via `rx.scroll_to()` anchor.
+- **`rxconfig.py`**: Reflex config — `transport="polling"` (Windows granian WS not supported), `RadixThemesPlugin`, ports 3003/8003.
