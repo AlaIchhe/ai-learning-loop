@@ -84,7 +84,7 @@ python scripts/cleanup.py --dry-run    # preview what would be removed
 # Code quality
 ruff check .                        # Zero warnings
 pyright .                           # Zero errors
-mypy core/ agents/ workflow/ --ignore-missing-imports
+mypy socratic_loop/core/ socratic_loop/agents/ socratic_loop/workflow/ --ignore-missing-imports
 
 # Run the app
 python run.py                       # → http://localhost:3003
@@ -100,15 +100,15 @@ python -m workflow.graph
 
 | Directory/File | Purpose |
 |------|---------|
-| `core/` | Data contracts, model config, providers, logging |
-| `agents/` | LLM compute/interact nodes |
-| `workflow/` | LangGraph graph building + routing |
-| `rxweb/` | Reflex UI — state, pages, styles |
-| `rxweb/rxweb.py` | App entry point (routes) |
-| `rxweb/state.py` | AppState — multi-tab, LangGraph streaming, provider CRUD |
-| `rxweb/chat.py` | Chat page — sidebar, messages, interrupt/resume UI |
-| `rxweb/model_settings.py` | Model settings page — provider list + add form |
-| `rxweb/styles.py` | Global styles, color system, role config |
+| `socratic_loop/core/` | Data contracts, model config, providers, logging |
+| `socratic_loop/agents/` | LLM compute/interact nodes |
+| `socratic_loop/workflow/` | LangGraph graph building + routing |
+| `web/` | Reflex UI — state, pages, styles |
+| `web/web.py` | App entry point (routes) |
+| `web/state.py` | AppState — multi-tab, LangGraph streaming, provider CRUD |
+| `web/chat.py` | Chat page — sidebar, messages, interrupt/resume UI |
+| `web/model_settings.py` | Model settings page — provider list + add form |
+| `web/styles.py` | Global styles, color system, role config |
 | `rxconfig.py` | Reflex config — ports, plugins, transport |
 | `run.py` | Universal launcher |
 | `scripts/cleanup.py` | Post-test garbage cleanup (cache dirs, build artifacts) |

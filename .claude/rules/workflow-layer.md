@@ -1,7 +1,7 @@
 ---
-description: workflow/ 层纯状态路由 — 图组装、节点编排、条件路由
+description: socratic_loop/workflow/ 层纯状态路由 — 图组装、节点编排、条件路由
 paths:
-  - "workflow/**"
+  - "socratic_loop/workflow/**"
 ---
 
 # Workflow Layer — Pure Scheduling

@@ -1,7 +1,7 @@
 ---
-description: rxweb/ 展现层 — Reflex 响应式UI + 状态管理 + 多Tab
+description: web/ 展现层 — Reflex 响应式UI + 状态管理 + 多Tab
 paths:
-  - "rxweb/**"
+  - "web/**"
   - "rxconfig.py"
 ---
 

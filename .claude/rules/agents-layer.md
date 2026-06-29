@@ -1,7 +1,7 @@
 ---
-description: agents/ 层无状态纯函数 — opponent, presenter, referee, _base 共享工具
+description: socratic_loop/agents/ 层无状态纯函数 — opponent, presenter, referee, _base 共享工具
 paths:
-  - "agents/**"
+  - "socratic_loop/agents/**"
 ---
 
 # Agents Layer — Stateless Pure Functions

@@ -1,7 +1,7 @@
 ---
-description: core/ 层数据契约 — env, state, schemas, prompts, model, providers, model_store, connection_test, logging
+description: socratic_loop/core/ 层数据契约 — env, state, schemas, prompts, model, providers, model_store, connection_test, logging
 paths:
-  - "core/**"
+  - "socratic_loop/core/**"
 ---
 
 # Core Layer — Data Contracts

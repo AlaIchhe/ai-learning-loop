@@ -33,4 +33,4 @@ jobs:
         run: pyright .
 
       - name: Run mypy
-        run: mypy core/ agents/ workflow/ --ignore-missing-imports
+        run: mypy socratic_loop/core/ socratic_loop/agents/ socratic_loop/workflow/ --ignore-missing-imports

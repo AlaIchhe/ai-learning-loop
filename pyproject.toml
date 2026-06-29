@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["core*", "agents*", "workflow*", "rxweb*"]
+include = ["socratic_loop*", "web*"]
 
 [project.optional-dependencies]
 dev = [
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-debate-graph = "workflow.graph:export_graph"
+debate-graph = "socratic_loop.workflow.graph:export_graph"
 
 [tool.ruff]
 target-version = "py311"
@@ -63,13 +63,13 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 strict_equality = true
-files = ["core/", "agents/", "workflow/"]
+files = ["socratic_loop/core/", "socratic_loop/agents/", "socratic_loop/workflow/"]
 ignore_missing_imports = true
 
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
-include = ["core", "agents", "workflow", "rxweb", "tests"]
+include = ["socratic_loop", "web", "tests"]
 exclude = ["venv"]
 # 第三方库类型桩缺失不属于本项目问题
 reportMissingTypeStubs = false

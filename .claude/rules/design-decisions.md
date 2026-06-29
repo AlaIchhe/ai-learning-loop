@@ -35,5 +35,5 @@ description: 关键设计决策 — Compute/Interact 拆分、拼合式演化、
 - **Provider preset registry**: `core/providers.py` holds pure-data `ProviderPreset` entries (8 built-in). `supports_structured_output=False` triggers automatic JSON-mode.
 - **Persistent model store**: `core/model_store.ModelStore` atomically saves to `.model-config.json`. First-run auto-migration from `.env`.
 - **Connection test before save**: `check_connection()` (stdlib `urllib`) sets `ProviderEntry.status` to `ok`/`error` with Chinese diagnostic message.
-- **UI theme system (`rxweb/styles.py` + `rxweb/assets/fonts.css`)**: Unified CSS-in-Python styling via Reflex `style` prop. Custom message bubbles, animations (`@keyframes blink-cursor`, `messageSlideIn`), sidebar, input area, scrollbar. Dark mode toggle via `AppState.dark_mode`. Typing cursor (`▍`) via CSS class. Auto-scroll via `rx.scroll_to()` anchor.
+- **UI theme system (`web/styles.py` + `web/assets/fonts.css`)**: Unified CSS-in-Python styling via Reflex `style` prop. Custom message bubbles, animations (`@keyframes blink-cursor`, `messageSlideIn`), sidebar, input area, scrollbar. Dark mode toggle via `AppState.dark_mode`. Typing cursor (`▍`) via CSS class. Auto-scroll via `rx.scroll_to()` anchor.
 - **`rxconfig.py`**: Reflex config — `transport="polling"` (Windows granian WS not supported), `RadixThemesPlugin`, ports 3003/8003.
