@@ -8,14 +8,14 @@ import uuid
 import time
 from pathlib import Path
 
-from core.state import make_initial_state
-from core.model_store import ModelStore
-from core.model import load_model_config
-from core.env import setup_environment
-from workflow.graph import build_graph
-from agents.opponent import opponent_compute_node, opponent_interact_node
-from agents.presenter import presenter_compute_node, presenter_interact_node
-from agents.referee import referee_deliberate_node
+from socratic_loop.core.state import make_initial_state
+from socratic_loop.core.model_store import ModelStore
+from socratic_loop.core.model import load_model_config
+from socratic_loop.core.env import setup_environment
+from socratic_loop.workflow.graph import build_graph
+from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+from socratic_loop.agents.referee import referee_deliberate_node
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 setup_environment(PROJECT_ROOT)
@@ -221,7 +221,7 @@ class AppState(rx.State):
             return
         import sys
         try:
-            from core.providers import get_preset
+            from socratic_loop.core.providers import get_preset
             preset = get_preset(self.setting_new_preset)
             entry_id = _model_store.add_provider(
                 preset_id=self.setting_new_preset,
@@ -256,7 +256,7 @@ class AppState(rx.State):
         if _model_store is None:
             return
         try:
-            from core.connection_test import check_connection
+            from socratic_loop.core.connection_test import check_connection
             provider = _model_store.configured_providers().get(entry_id)
             if provider is None:
                 return
