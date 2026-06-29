@@ -1,5 +1,5 @@
 """Reflex entry point for Socratic Learning Loop.
-Reflex looks for rxweb/rxweb.py as the app module (app_name='rxweb' in rxconfig.py).
+Reflex looks for web/web.py as the app module (app_name='web' in rxconfig.py).
 """
 from .state import AppState
 from .chat import chat_page

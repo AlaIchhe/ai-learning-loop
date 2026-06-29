@@ -3,7 +3,7 @@ from reflex_base.plugins.sitemap import SitemapPlugin
 from reflex_components_radix.plugin import RadixThemesPlugin
 
 config = rx.Config(
-    app_name="rxweb",
+    app_name="web",
     frontend_port=3003,
     backend_port=8003,
     db_url="sqlite:///reflex.db",
