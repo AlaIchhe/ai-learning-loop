@@ -1,10 +1,10 @@
-"""core.model.get_chat_model 新增 api_key 参数测试。"""
+"""socratic_loop.core.model.get_chat_model 新增 api_key 参数测试。"""
 
 import os
 import warnings
 from unittest.mock import patch
 
-from core.model import get_chat_model
+from socratic_loop.core.model import get_chat_model
 
 
 class TestGetChatModelApiKeyParam:
@@ -14,7 +14,7 @@ class TestGetChatModelApiKeyParam:
         """显式 api_key 应透传到 ChatOpenAI 构造器。"""
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
             warnings.catch_warnings(),
         ):
             warnings.simplefilter("ignore")
@@ -25,7 +25,7 @@ class TestGetChatModelApiKeyParam:
     def test_explicit_api_key_overrides_env(self):
         with (
             patch.dict(os.environ, {"LLM_API_KEY": "sk-env"}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
         ):
             get_chat_model(api_key="sk-explicit")
             _, kwargs = mock_cls.call_args
@@ -35,7 +35,7 @@ class TestGetChatModelApiKeyParam:
         """空串等价于未传入，回退到 env。"""
         with (
             patch.dict(os.environ, {"LLM_API_KEY": "sk-env"}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
         ):
             get_chat_model(api_key="")
             _, kwargs = mock_cls.call_args
@@ -44,7 +44,7 @@ class TestGetChatModelApiKeyParam:
     def test_none_api_key_falls_back_to_env(self):
         with (
             patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fallback"}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
         ):
             get_chat_model(api_key=None)
             _, kwargs = mock_cls.call_args
@@ -54,7 +54,7 @@ class TestGetChatModelApiKeyParam:
         """既无显式 key 也无 env key 时发出 RuntimeWarning 并使用占位符。"""
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
             warnings.catch_warnings(record=True) as w,
         ):
             warnings.simplefilter("always")
@@ -68,7 +68,7 @@ class TestGetChatModelApiKeyParam:
         """model_name/base_url/api_key 全部显式传入时应全部透传。"""
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
             warnings.catch_warnings(),
         ):
             warnings.simplefilter("ignore")
@@ -89,7 +89,7 @@ class TestGetChatModelApiKeyParam:
         """仅传 temperature 单参的旧代码路径应仍能工作（向后兼容）。"""
         with (
             patch.dict(os.environ, {"OPENAI_API_KEY": "sk-env"}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
         ):
             get_chat_model(0.5)
             _, kwargs = mock_cls.call_args
@@ -100,8 +100,8 @@ class TestGetChatModelApiKeyParam:
 
 class TestGetChatModelForProfile:
     def test_helper_creates_model_from_profile(self):
-        from core.model import get_chat_model_for_profile
-        from core.model_store import ModelProfile
+        from socratic_loop.core.model import get_chat_model_for_profile
+        from socratic_loop.core.model_store import ModelProfile
 
         profile = ModelProfile(
             provider_entry_id="test",
@@ -113,7 +113,7 @@ class TestGetChatModelForProfile:
         )
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
         ):
             get_chat_model_for_profile(profile, temperature=0.7)
             _, kwargs = mock_cls.call_args
@@ -123,8 +123,8 @@ class TestGetChatModelForProfile:
             assert kwargs["temperature"] == 0.7
 
     def test_helper_default_temperature(self):
-        from core.model import get_chat_model_for_profile
-        from core.model_store import ModelProfile
+        from socratic_loop.core.model import get_chat_model_for_profile
+        from socratic_loop.core.model_store import ModelProfile
 
         profile = ModelProfile(
             provider_entry_id="t",
@@ -136,7 +136,7 @@ class TestGetChatModelForProfile:
         )
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("core.model.ChatOpenAI") as mock_cls,
+            patch("socratic_loop.core.model.ChatOpenAI") as mock_cls,
         ):
             get_chat_model_for_profile(profile)
             _, kwargs = mock_cls.call_args

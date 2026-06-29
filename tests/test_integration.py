@@ -10,6 +10,7 @@ from uuid import uuid4
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
+from socratic_loop.workflow.graph import build_graph
 from tests.helpers import make_initial_state
 from tests.mock_nodes import (
     make_mock_referee,
@@ -18,7 +19,6 @@ from tests.mock_nodes import (
     mock_presenter_compute,
     mock_presenter_interact,
 )
-from workflow.graph import build_graph
 
 # =============================================================================
 

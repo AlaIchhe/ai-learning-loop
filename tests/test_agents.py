@@ -13,10 +13,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_openai import ChatOpenAI
 
-from agents.opponent import opponent_compute_node, opponent_interact_node
-from agents.presenter import presenter_compute_node, presenter_interact_node
-from agents.referee import referee_deliberate_node
-from core.schemas import RefereeJudgment, RoundRecord
+from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+from socratic_loop.agents.referee import referee_deliberate_node
+from socratic_loop.core.schemas import RefereeJudgment, RoundRecord
 from tests.helpers import make_mock_model, make_state
 
 
@@ -115,7 +115,7 @@ class TestOpponentInteractNode:
             status="awaiting_critique_response",
         )
 
-        with patch("agents.opponent.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.opponent.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "我承认论题需要更精确的边界条件。"
             result = opponent_interact_node(state)
 
@@ -128,7 +128,7 @@ class TestOpponentInteractNode:
             status="awaiting_critique_response",
         )
 
-        with patch("agents.opponent.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.opponent.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "用户回应"
             result = opponent_interact_node(state)
 
@@ -142,7 +142,7 @@ class TestOpponentInteractNode:
             status="awaiting_critique_response",
         )
 
-        with patch("agents.opponent.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.opponent.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "我的回应"
             result = opponent_interact_node(state)
 
@@ -250,7 +250,7 @@ class TestPresenterInteractNode:
             status="awaiting_thesis_confirmation",
         )
 
-        with patch("agents.presenter.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.presenter.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "精确化论题：AI 应受监管。"
             presenter_interact_node(state)
 
@@ -262,7 +262,7 @@ class TestPresenterInteractNode:
             status="awaiting_thesis_confirmation",
         )
 
-        with patch("agents.presenter.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.presenter.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "确认版论题"
             result = presenter_interact_node(state)
 
@@ -275,7 +275,7 @@ class TestPresenterInteractNode:
             status="awaiting_thesis_confirmation",
         )
 
-        with patch("agents.presenter.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.presenter.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "经过编辑的新论题"
             result = presenter_interact_node(state)
 
@@ -289,7 +289,7 @@ class TestPresenterInteractNode:
             status="awaiting_thesis_confirmation",
         )
 
-        with patch("agents.presenter.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.presenter.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "确认版"
             result = presenter_interact_node(state)
 
@@ -479,7 +479,7 @@ class TestInterruptIdempotency:
             status="awaiting_critique_response",
         )
 
-        with patch("agents.opponent.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.opponent.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "用户回应"
             result = opponent_interact_node(state)
 
@@ -495,7 +495,7 @@ class TestInterruptIdempotency:
             status="awaiting_thesis_confirmation",
         )
 
-        with patch("agents.presenter.interrupt") as mock_interrupt:
+        with patch("socratic_loop.agents.presenter.interrupt") as mock_interrupt:
             mock_interrupt.return_value = "确认版"
             result = presenter_interact_node(state)
 
@@ -515,7 +515,7 @@ class TestOpponentEdgeCases:
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
         state = make_state()
-        with patch("agents._base.get_chat_model") as mock_get:
+        with patch("socratic_loop.agents._base.get_chat_model") as mock_get:
             mock_model = make_mock_model("批判")
             mock_get.return_value = mock_model
             result = opponent_compute_node(state, model=None)
@@ -574,7 +574,7 @@ class TestPresenterEdgeCases:
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
         state = make_state(_critique="c", _user_response="u")
-        with patch("agents._base.get_chat_model") as mock_get:
+        with patch("socratic_loop.agents._base.get_chat_model") as mock_get:
             mock_model = make_mock_model("草稿")
             mock_get.return_value = mock_model
             result = presenter_compute_node(state, model=None)
@@ -627,7 +627,7 @@ class TestRefereeEdgeCases:
             _draft_thesis="d", _confirmed_thesis="cf",
         )
         judgment = self._make_judgment()
-        with patch("agents.referee.get_chat_model") as mock_get:
+        with patch("socratic_loop.agents.referee.get_chat_model") as mock_get:
             mock_model = MagicMock()
             structured_mock = MagicMock()
             structured_mock.invoke.return_value = judgment
@@ -706,34 +706,34 @@ class TestRefereeEdgeCases:
 
     def test_extract_json_from_plain_json(self):
         """_extract_json 支持直接解析 JSON 对象。"""
-        from agents.referee import _extract_json
+        from socratic_loop.agents.referee import _extract_json
 
         result = _extract_json('{"continue_debate": true, "new_thesis": "论题"}')
         assert result == {"continue_debate": True, "new_thesis": "论题"}
 
     def test_extract_json_from_markdown_block(self):
         """_extract_json 支持 Markdown JSON 代码块。"""
-        from agents.referee import _extract_json
+        from socratic_loop.agents.referee import _extract_json
 
         result = _extract_json('说明\n```json\n{"reasoning": "理由"}\n```')
         assert result == {"reasoning": "理由"}
 
     def test_extract_json_from_outer_braces(self):
         """_extract_json 支持从普通文本中提取最外层 JSON 对象。"""
-        from agents.referee import _extract_json
+        from socratic_loop.agents.referee import _extract_json
 
         result = _extract_json('裁判输出如下：{"improvement_hint": "继续收窄边界"}。')
         assert result == {"improvement_hint": "继续收窄边界"}
 
     def test_extract_json_returns_none_for_invalid_content(self):
         """_extract_json 无法解析时返回 None。"""
-        from agents.referee import _extract_json
+        from socratic_loop.agents.referee import _extract_json
 
         assert _extract_json("这不是 JSON") is None
 
     def test_build_history_summary_accepts_round_record_and_dict(self):
         """_build_history_summary 兼容 RoundRecord 与 checkpoint dict。"""
-        from agents.referee import _build_history_summary
+        from socratic_loop.agents.referee import _build_history_summary
 
         first = RoundRecord(
             round_number=1,
@@ -761,7 +761,7 @@ class TestRefereeEdgeCases:
 
     def test_get_initial_thesis_from_dict_history(self):
         """_get_initial_thesis 在 history[0] 为 dict 时正确回退。"""
-        from agents.referee import _get_initial_thesis
+        from socratic_loop.agents.referee import _get_initial_thesis
 
         state = make_state(
             history=[{
@@ -779,7 +779,7 @@ class TestRefereeEdgeCases:
 
     def test_get_initial_thesis_empty_history(self):
         """_get_initial_thesis 在 history 为空时返回 current_thesis。"""
-        from agents.referee import _get_initial_thesis
+        from socratic_loop.agents.referee import _get_initial_thesis
 
         state = make_state(history=[], current_thesis="唯一论题")
         result = _get_initial_thesis(state)

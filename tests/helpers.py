@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 
 from langchain_openai import ChatOpenAI
 
-from core.state import AgentState
-from core.state import make_initial_state as make_core_initial_state
+from socratic_loop.core.state import AgentState
+from socratic_loop.core.state import make_initial_state as make_core_initial_state
 
 
 def make_state(**overrides: object) -> AgentState:  # pyright: ignore[reportArgumentType]

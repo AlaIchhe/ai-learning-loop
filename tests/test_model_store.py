@@ -1,12 +1,12 @@
-"""core.model_store 持久化与 CRUD 单元测试。"""
+"""socratic_loop.core.model_store 持久化与 CRUD 单元测试。"""
 
 from pathlib import Path
 
 import pytest
 
-from core.model import ModelConfig
-from core.model_store import ModelStore
-from core.providers import get_preset
+from socratic_loop.core.model import ModelConfig
+from socratic_loop.core.model_store import ModelStore
+from socratic_loop.core.providers import get_preset
 
 
 class TestEmptyStore:

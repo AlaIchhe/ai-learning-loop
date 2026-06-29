@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage
 
-from agents._base import _is_retryable, invoke_with_retry
+from socratic_loop.agents._base import _is_retryable, invoke_with_retry
 
 
 class TestRetryClassification:
@@ -32,7 +32,7 @@ class TestInvokeWithRetry:
         expected = AIMessage(content="ok")
         invocable.invoke.side_effect = [TimeoutError("temporary"), expected]
 
-        with patch("agents._base.time.sleep") as sleep:
+        with patch("socratic_loop.agents._base.time.sleep") as sleep:
             result = invoke_with_retry(invocable, ["message"], label="test")
 
         assert result is expected
@@ -43,7 +43,7 @@ class TestInvokeWithRetry:
         invocable = MagicMock()
         invocable.invoke.side_effect = ValueError("bad request")
 
-        with patch("agents._base.time.sleep") as sleep, pytest.raises(ValueError):
+        with patch("socratic_loop.agents._base.time.sleep") as sleep, pytest.raises(ValueError):
             invoke_with_retry(invocable, ["message"], label="test")
 
         assert invocable.invoke.call_count == 1
@@ -53,7 +53,7 @@ class TestInvokeWithRetry:
         invocable = MagicMock()
         invocable.invoke.side_effect = TimeoutError("still down")
 
-        with patch("agents._base.time.sleep") as sleep, pytest.raises(TimeoutError):
+        with patch("socratic_loop.agents._base.time.sleep") as sleep, pytest.raises(TimeoutError):
             invoke_with_retry(invocable, ["message"], label="test")
 
         assert invocable.invoke.call_count == 3

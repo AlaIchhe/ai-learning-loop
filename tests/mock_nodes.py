@@ -6,8 +6,8 @@
 
 from langgraph.types import interrupt
 
-from core.schemas import RoundRecord
-from core.state import AgentState
+from socratic_loop.core.schemas import RoundRecord
+from socratic_loop.core.state import AgentState
 
 # =============================================================================
 # Mock Opponent

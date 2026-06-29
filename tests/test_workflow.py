@@ -11,16 +11,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.schemas import RoundRecord
-from core.state import AgentState
-from tests.helpers import make_initial_state
-from workflow.graph import (
+from socratic_loop.core.schemas import RoundRecord
+from socratic_loop.core.state import AgentState
+from socratic_loop.workflow.graph import (
     _next_round_node,
     _route_after_referee,
     _start_node,
     build_graph,
     export_graph,
 )
+from tests.helpers import make_initial_state
 
 
 def _mock_opponent_compute(state: AgentState) -> dict:
@@ -334,9 +334,9 @@ class TestExportGraph:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test_graph.png")
             # Mock 所有 agent 节点的 LLM 导入，使 export_graph 不触发真实 API
-            with patch("agents.opponent.opponent_compute_node") as mock_oc, \
-                 patch("agents.presenter.presenter_compute_node") as mock_pc, \
-                 patch("agents.referee.referee_deliberate_node") as mock_rd:
+            with patch("socratic_loop.agents.opponent.opponent_compute_node") as mock_oc, \
+                 patch("socratic_loop.agents.presenter.presenter_compute_node") as mock_pc, \
+                 patch("socratic_loop.agents.referee.referee_deliberate_node") as mock_rd:
                 mock_oc.return_value = {"_critique": "", "messages": [], "status": ""}
                 mock_pc.return_value = {"_draft_thesis": "", "messages": [], "status": ""}
                 mock_rd.return_value = {"messages": [], "history": [], "status": "done", "final_result": ""}

@@ -15,10 +15,10 @@ from uuid import uuid4
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
-from agents.opponent import opponent_compute_node, opponent_interact_node
-from agents.presenter import presenter_compute_node, presenter_interact_node
-from agents.referee import referee_deliberate_node
-from core.prompts import (
+from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+from socratic_loop.agents.referee import referee_deliberate_node
+from socratic_loop.core.prompts import (
     FINAL_SUMMARY_PROMPT,
     OPPONENT_SYSTEM_PROMPT,
     PRESENTER_SYSTEM_PROMPT,
@@ -28,10 +28,10 @@ from core.prompts import (
     presenter_prompt,
     referee_prompt,
 )
-from core.schemas import RefereeJudgment, RoundRecord
-from core.state import AgentState
+from socratic_loop.core.schemas import RefereeJudgment, RoundRecord
+from socratic_loop.core.state import AgentState
+from socratic_loop.workflow.graph import _route_after_referee, build_graph
 from tests.helpers import make_mock_model, make_state
-from workflow.graph import _route_after_referee, build_graph
 
 # =============================================================================
 # Prompt 模板测试
@@ -92,7 +92,7 @@ class TestNodeOutputInterface:
             _critique="c", status="awaiting_critique_response",
         )
         # Mock interrupt to avoid GraphInterrupt
-        with patch("agents.opponent.interrupt") as mock_int:
+        with patch("socratic_loop.agents.opponent.interrupt") as mock_int:
             mock_int.return_value = "回应"
             result = opponent_interact_node(state)
         for key in result:
@@ -109,7 +109,7 @@ class TestNodeOutputInterface:
         state = make_state(
             _draft_thesis="d", status="awaiting_thesis_confirmation",
         )
-        with patch("agents.presenter.interrupt") as mock_int:
+        with patch("socratic_loop.agents.presenter.interrupt") as mock_int:
             mock_int.return_value = "确认"
             result = presenter_interact_node(state)
         for key in result:

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from core.schemas import RefereeJudgment
+from socratic_loop.core.schemas import RefereeJudgment
 
 
 class TestGhostProbeContracts:
@@ -24,6 +24,6 @@ class TestGhostProbeContracts:
 
         with (
             patch.object(ghost_probe, "_has_api_key", return_value=True),
-            patch("core.model.get_chat_model", return_value=mock_model),
+            patch("socratic_loop.core.model.get_chat_model", return_value=mock_model),
         ):
             assert ghost_probe.probe_structured_output() is True
