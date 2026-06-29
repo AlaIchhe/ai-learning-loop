@@ -28,7 +28,7 @@ from uuid import uuid4
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
-from core.env import setup_environment  # noqa: E402
+from socratic_loop.core.env import setup_environment  # noqa: E402
 
 setup_environment(_project_root)
 
@@ -36,15 +36,15 @@ from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
-from agents.referee import referee_deliberate_node  # noqa: E402
-from core.model import get_chat_model, has_configured_api_key  # noqa: E402
-from core.prompts import (  # noqa: E402
+from socratic_loop.agents.referee import referee_deliberate_node  # noqa: E402
+from socratic_loop.core.model import get_chat_model, has_configured_api_key  # noqa: E402
+from socratic_loop.core.prompts import (  # noqa: E402
     OPPONENT_SYSTEM_PROMPT,
     PRESENTER_SYSTEM_PROMPT,
     opponent_prompt,
     presenter_prompt,
 )
-from core.state import AgentState, make_initial_state  # noqa: E402
+from socratic_loop.core.state import AgentState, make_initial_state  # noqa: E402
 
 # =============================================================================
 # 辅助函数
@@ -278,9 +278,9 @@ def test_workflow_single_round() -> bool:
     _header("测试 4: LangGraph 完整单轮工作流（真实 API）")
 
     # ---- 导入真实 Agent 节点（Opponent/Presenter 不需要修改） ----
-    from agents.opponent import opponent_compute_node, opponent_interact_node
-    from agents.presenter import presenter_compute_node, presenter_interact_node
-    from workflow.graph import build_graph
+    from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+    from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+    from socratic_loop.workflow.graph import build_graph
 
     checkpointer = MemorySaver()
     graph = build_graph(
@@ -389,9 +389,9 @@ def test_workflow_multi_round() -> bool:
     """两轮辩论工作流 —— 验证多轮状态演化和 checkpoint 持久性。"""
     _header("测试 5: LangGraph 多轮工作流（真实 API）")
 
-    from agents.opponent import opponent_compute_node, opponent_interact_node
-    from agents.presenter import presenter_compute_node, presenter_interact_node
-    from workflow.graph import build_graph
+    from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+    from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+    from socratic_loop.workflow.graph import build_graph
 
     checkpointer = MemorySaver()
     graph = build_graph(
@@ -474,9 +474,9 @@ def test_checkpoint_persistence() -> bool:
     """验证 checkpoint 在中断点的状态保存与恢复。"""
     _header("测试 6: Checkpoint 持久性验证")
 
-    from agents.opponent import opponent_compute_node, opponent_interact_node
-    from agents.presenter import presenter_compute_node, presenter_interact_node
-    from workflow.graph import build_graph
+    from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+    from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+    from socratic_loop.workflow.graph import build_graph
 
     checkpointer = MemorySaver()
     graph = build_graph(

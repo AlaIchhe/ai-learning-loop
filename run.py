@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from core.env import setup_environment
+from socratic_loop.core.env import setup_environment
 
 
 def main() -> None:
@@ -24,7 +24,7 @@ def main() -> None:
     setup_environment(project_root, change_cwd=True)
 
     if "--export-graph" in sys.argv:
-        from workflow.graph import export_graph
+        from socratic_loop.workflow.graph import export_graph
         export_graph()
         return
 
