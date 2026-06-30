@@ -5,6 +5,7 @@
         "matcher": "Bash",
         "hooks": [
           {
+            "type": "command",
             "condition": "command contains 'pytest'",
             "command": "python scripts/cleanup.py"
           }
