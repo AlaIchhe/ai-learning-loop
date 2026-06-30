@@ -1,14 +1,69 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# ai-learning-loop —— 苏格拉底式学习引导系统
+# ═══════════════════════════════════════════════════════════════════════════
+# 本文件是项目打包、依赖与工具的权威配置入口。
+#
+# 安装方式:
+#   pip install -e ".[dev]"        # 开发安装（可编辑模式）
+#   pip install -e ".[dev,test]"   # 包含测试工具
+#   pip install .                  # 生产安装
+#
+# 构建分发:
+#   python -m build                # 生成 wheel + sdist
+#   twine upload dist/*            # 发布到 PyPI
+#
+# 运行应用:
+#   ai-learning-loop               # console_scripts 入口
+#   python -m ai-learning-loop     # 模块运行入口
+# ═══════════════════════════════════════════════════════════════════════════
+
 [build-system]
-requires = ["setuptools>=75.0"]
+requires = ["setuptools>=75.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# ── 项目元数据（PEP 621） ─────────────────────────────────────────────────
 
 [project]
 name = "ai-learning-loop"
-version = "1.0.0"
+dynamic = ["version"]
 description = "苏格拉底式学习引导系统 —— 基于 LangGraph 的三智能体苏格拉底式提问与认知深化模型"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
+authors = [
+    {name = "ai-learning-loop contributors"},
+]
+maintainers = [
+    {name = "ai-learning-loop contributors"},
+]
+keywords = [
+    "langgraph",
+    "langchain",
+    "socratic",
+    "learning",
+    "ai",
+    "llm",
+    "reflex",
+    "education",
+    "chatbot",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Education",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Framework :: LangChain",
+]
+
+# ── 运行时依赖 ─────────────────────────────────────────────────────────────
+
 dependencies = [
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
@@ -19,19 +74,68 @@ dependencies = [
     "python-dotenv>=1.0.0",
 ]
 
-[tool.setuptools.packages.find]
-include = ["socratic_loop*", "web*"]
+# ── 可选依赖组 ─────────────────────────────────────────────────────────────
 
 [project.optional-dependencies]
+# 开发工具：lint + type check + 构建
 dev = [
-    "pytest>=9.0",
     "ruff>=0.8.0",
     "mypy>=2.0",
     "pyright>=1.1.400",
+    "build>=1.0",
+    "twine>=5.0",
+]
+# 测试工具
+test = [
+    "pytest>=9.0",
+    "pytest-asyncio>=0.23.0",
+]
+# CI = dev + test 的合集
+ci = [
+    "ruff>=0.8.0",
+    "mypy>=2.0",
+    "pyright>=1.1.400",
+    "pytest>=9.0",
+    "pytest-asyncio>=0.23.0",
+    "build>=1.0",
+    "twine>=5.0",
 ]
 
+# ── 入口点 ─────────────────────────────────────────────────────────────────
+
 [project.scripts]
+# 主应用入口：安装后可直接在命令行运行 `ai-learning-loop`
+ai-learning-loop = "socratic_loop.__main__:main"
+# 图导出工具
 debate-graph = "socratic_loop.workflow.graph:export_graph"
+
+# 支持 `python -m socratic_loop` 运行
+[tool.setuptools]
+py-modules = []
+
+[project.urls]
+Homepage = "https://github.com/zhuhe/ai-learning-loop"
+Documentation = "https://github.com/zhuhe/ai-learning-loop#readme"
+Repository = "https://github.com/zhuhe/ai-learning-loop"
+Issues = "https://github.com/zhuhe/ai-learning-loop/issues"
+Changelog = "https://github.com/zhuhe/ai-learning-loop/blob/main/CHANGELOG.md"
+
+# ── 包发现与数据 ───────────────────────────────────────────────────────────
+
+[tool.setuptools.dynamic]
+version = {attr = "socratic_loop.__init__.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["socratic_loop*", "web*"]
+exclude = ["tests*", "scripts*", "docs*"]
+
+[tool.setuptools.package-data]
+# Web 静态资源
+web = ["assets/*", "assets/**/*"]
+# 配置文件模板
+socratic_loop = ["py.typed"]
+
+# ── 开发工具配置 ───────────────────────────────────────────────────────────
 
 [tool.ruff]
 target-version = "py311"
@@ -40,7 +144,6 @@ exclude = ["venv", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "C4", "RUF100"]
-ignore = []
 
 [tool.ruff.format]
 quote-style = "double"
@@ -63,7 +166,7 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 strict_equality = true
-files = ["socratic_loop/core/", "socratic_loop/agents/", "socratic_loop/workflow/"]
+files = ["socratic_loop/core/", "socratic_loop/agents/", "socratic_loop/infra/", "socratic_loop/workflow/"]
 ignore_missing_imports = true
 
 [tool.pyright]
@@ -71,16 +174,11 @@ pythonVersion = "3.11"
 typeCheckingMode = "strict"
 include = ["socratic_loop", "web", "tests"]
 exclude = ["venv"]
-# 第三方库类型桩缺失不属于本项目问题
 reportMissingTypeStubs = false
-# 测试访问私有函数（_start_node 等）是白盒测试的标准实践
 reportPrivateUsage = "none"
-# LangChain/LangGraph 返回类型由运行时确定，严格推断会导致误报
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
-# LangGraph 节点返回的是异构部分状态更新 dict，值类型不可预知
 reportUnknownParameterType = "none"
 reportMissingTypeArgument = "none"
-# build_graph 参数使用依赖注入，checkpointer 类型来自 langgraph 内部
 reportMissingParameterType = "none"

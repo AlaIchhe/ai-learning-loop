@@ -1,0 +1,58 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+
+# 测试与缓存
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 环境配置（包含敏感信息）
+.env
+.env.local
+.env.*.local
+
+# 持久化数据（不应打包进镜像）
+.model-config.json
+.states/
+.web/
+reflex.lock/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 文档
+docs/
+*.md
+!README.md
+
+# CI
+.github/
+.claude/
+
+# 脚本
+scripts/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# Playwright
+.playwright-mcp/

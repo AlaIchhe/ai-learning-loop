@@ -1,0 +1,20 @@
+# 包含在 sdist 中的额外文件（wheel 由 package-data 自动处理）
+include README.md
+include LICENSE
+include CHANGELOG.md
+include MANIFEST.in
+
+# 排除开发环境文件
+exclude .env
+exclude .model-config.json
+
+# 递归包含文档
+recursive-include docs *.md *.png
+
+# 排除不需要分发的目录
+prune venv
+prune .git
+prune .github
+prune .claude
+prune .states
+prune __pycache__

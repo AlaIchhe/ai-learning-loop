@@ -1,0 +1,30 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# ai-learning-loop —— Docker Compose 配置
+# ═══════════════════════════════════════════════════════════════════════════
+# 使用方式:
+#   docker compose up -d          # 启动服务
+#   docker compose logs -f        # 查看日志
+#   docker compose down           # 停止服务
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  ai-learning-loop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-learning-loop:latest
+    container_name: ai-learning-loop
+    ports:
+      - "3003:3003"   # Reflex 前端
+      - "8003:8003"   # Reflex 后端
+    env_file:
+      - .env
+    environment:
+      - PYTHONUTF8=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
