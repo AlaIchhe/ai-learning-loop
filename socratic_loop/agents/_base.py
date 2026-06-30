@@ -15,6 +15,7 @@ from collections.abc import Callable
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
+from socratic_loop.core.settings import settings
 from socratic_loop.core.state import AgentState
 from socratic_loop.infra.logging import TraceLogger
 from socratic_loop.infra.model import get_chat_model
@@ -22,14 +23,8 @@ from socratic_loop.infra.model import get_chat_model
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# LLM 调用重试配置
+# LLM 调用重试配置（运行时从 core/settings.py:settings 读取）
 # =============================================================================
-
-_MAX_RETRIES = 3
-"""最大重试次数（含首次调用）。"""
-
-_RETRY_BACKOFF_BASE = 1.0
-"""指数退避基数（秒）：第 n 次重试等待 base * 2^(n-1) 秒。"""
 
 _RETRYABLE_ERRORS = (
     ConnectionError,
@@ -115,6 +110,10 @@ def invoke_with_retry(
     Raises:
         最后一次尝试的异常（重试耗尽后）。
     """
+    # 每次调用时从 settings 读取，便于测试覆盖和运行时调整
+    max_retries = settings.llm_max_retries
+    backoff_base = settings.llm_retry_backoff_base
+
     retry_count = 0
     last_error: Exception | None = None
 
@@ -123,7 +122,7 @@ def invoke_with_retry(
     if trace:
         trace.llm_call_start(model=model_name, label=label)
 
-    for attempt in range(1, _MAX_RETRIES + 1):
+    for attempt in range(1, max_retries + 1):
         try:
             result = invocable.invoke(messages)
             if trace:
@@ -132,7 +131,7 @@ def invoke_with_retry(
         except Exception as exc:
             last_error = exc
             retry_count += 1
-            if not _is_retryable(exc) or attempt == _MAX_RETRIES:
+            if not _is_retryable(exc) or attempt == max_retries:
                 if trace:
                     trace.llm_call_end(
                         success=False,
@@ -140,14 +139,14 @@ def invoke_with_retry(
                         error=str(exc)[:200],
                     )
                 raise
-            wait = _RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+            wait = backoff_base * (2 ** (attempt - 1))
             logger.warning(
                 "%s 调用失败（第 %d/%d 次），%s 秒后重试: %s",
-                label, attempt, _MAX_RETRIES, wait, exc,
+                label, attempt, max_retries, wait, exc,
             )
             if on_retry:
                 with contextlib.suppress(Exception):
-                    on_retry(attempt, _MAX_RETRIES, wait, exc)
+                    on_retry(attempt, max_retries, wait, exc)
             time.sleep(wait)
 
     assert last_error is not None

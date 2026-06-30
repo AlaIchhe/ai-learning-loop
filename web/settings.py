@@ -48,13 +48,11 @@ def provider_card(provider: dict) -> rx.Component:
 
 def add_provider_form() -> rx.Component:
     """添加新 provider 的表单。"""
-    presets = ["openai", "deepseek", "siliconflow", "tongyi", "zhipu", "moonshot", "ollama", "custom"]
-
     return rx.card(
         rx.vstack(
             rx.heading("添加新提供商", size="4"),
             rx.select(
-                presets,
+                AppState.available_presets,
                 value=AppState.setting_new_preset,
                 on_change=AppState.set_setting_preset,
                 label="选择预设",

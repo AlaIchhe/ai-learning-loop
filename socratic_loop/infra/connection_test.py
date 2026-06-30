@@ -59,7 +59,7 @@ def check_connection(
     base_url: str | None,
     api_key: str,
     *,
-    timeout: float = 10.0,
+    timeout: float | None = None,
     provider_id: str = "",
 ) -> ConnectionResult:
     """测试给定端点与 API Key 的连通性。
@@ -69,13 +69,19 @@ def check_connection(
     Args:
         base_url: API 端点。None 或空串表示 OpenAI 官方端点。
         api_key: API Key。Ollama 等无鉴权服务可传空串。
-        timeout: 请求超时秒数。
+        timeout: 请求超时秒数。None 时使用 core/settings.py 的
+                connection_timeout（可通过 CONNECTION_TIMEOUT 环境变量覆盖）。
         provider_id: 可选的 preset id，用于 Ollama 特殊路径判断。
                      未传时通过 base_url 子串自动判断。
 
     Returns:
         ConnectionResult，ok=True 表示配置可用。
     """
+    # 延迟导入避免循环依赖；使用 settings 的运行时最新值
+    from socratic_loop.core.settings import settings
+
+    if timeout is None:
+        timeout = settings.connection_timeout
     is_ollama = provider_id == "ollama" or (
         isinstance(base_url, str)
         and ("ollama" in base_url.lower() or "localhost:11434" in base_url.lower())

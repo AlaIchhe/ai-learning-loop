@@ -42,6 +42,8 @@ class AppState(StreamingMixin, ProviderMixin, rx.State):
 
     # ── 镜像：模型设置页数据 ──
     providers_list: list[dict] = []
+    #: 可用预设 id 列表（从 infra/providers.py:iter_presets() 动态加载，避免硬编码重复）
+    available_presets: list[str] = []
     setting_show_add: bool = False
     setting_new_preset: str = "deepseek"
     setting_new_name: str = ""
@@ -94,6 +96,12 @@ class AppState(StreamingMixin, ProviderMixin, rx.State):
         # 确保至少有一个活跃 tab
         if not self.active_tab_id and self.tabs:
             self.active_tab_id = self.tabs[0]["id"]
+
+        # 加载可用预设列表（动态从 providers 注册表获取，避免硬编码与后端重复）
+        if not self.available_presets:
+            from socratic_loop.infra.providers import iter_presets
+
+            self.available_presets = [p.id for p in iter_presets()]
 
         # 初始化 ModelStore（首次访问时从文件加载或从 .env 迁移）
         _globals._initialize_model_store()

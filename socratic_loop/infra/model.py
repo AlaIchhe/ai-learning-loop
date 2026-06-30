@@ -1,12 +1,9 @@
 """
 模型工厂 —— 统一管理 LLM 实例的创建。
 
-读取环境变量决定使用哪个模型供应商：
-- 未设置 LLM_BASE_URL → 默认 OpenAI (gpt-4o)
-- 设置了 LLM_BASE_URL → 使用对应供应商（如 DeepSeek）
-
-Agent 节点通过 get_chat_model() 获取模型实例，
-无需关心底层是 OpenAI 还是 DeepSeek。
+配置读取委托 core/settings.py:settings（pydantic-settings 单一读取器），
+本模块保留 load_model_config() / has_configured_api_key() 作为薄封装，
+保持向后兼容（含测试中通过 env mapping 注入的路径）。
 
 支持两种使用方式：
 1. 传统 env 路径：get_chat_model(temperature) —— 从 os.environ 读取配置（脚本与测试用）。
@@ -14,12 +11,13 @@ Agent 节点通过 get_chat_model() 获取模型实例，
    —— per-tab 冻结配置，由 UI 的 ModelStore 注入（支持多提供商并行）。
 """
 
-import os
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from langchain_openai import ChatOpenAI
+
+from socratic_loop.core.settings import AppSettings
 
 #: 未配置 API Key 时使用的占位符值。
 _PLACEHOLDER_API_KEY = "sk-not-configured"
@@ -40,9 +38,8 @@ def _get_env_str(source: Mapping[str, object], key: str) -> str:
     return value if isinstance(value, str) else ""
 
 
-def load_model_config(env: Mapping[str, object] | None = None) -> ModelConfig:
-    """从环境变量映射读取模型配置。"""
-    source = os.environ if env is None else env
+def _parse_from_mapping(source: Mapping[str, object]) -> ModelConfig:
+    """从显式映射解析配置（测试注入路径）。"""
     api_key = _get_env_str(source, "LLM_API_KEY") or _get_env_str(source, "OPENAI_API_KEY") or None
     if api_key == _PLACEHOLDER_API_KEY:
         api_key = None
@@ -51,6 +48,26 @@ def load_model_config(env: Mapping[str, object] | None = None) -> ModelConfig:
         model_name=_get_env_str(source, "LLM_MODEL") or "gpt-4o",
         base_url=_get_env_str(source, "LLM_BASE_URL") or None,
         api_key=api_key,
+    )
+
+
+def load_model_config(env: Mapping[str, object] | None = None) -> ModelConfig:
+    """从环境变量映射读取模型配置。
+
+    - env 为 None 时：构造全新 AppSettings() 读取当前 os.environ
+      （运行时路径；每次重新构造以响应运行时的 os.environ 变更，如测试 patch）。
+    - env 为 Mapping 时：从映射解析（测试注入路径，保持向后兼容）。
+    """
+    if env is not None:
+        return _parse_from_mapping(env)
+
+    # 运行时路径：重新构造以读取最新 os.environ
+    s = AppSettings()
+    return ModelConfig(
+        model_name=s.llm_model,
+        # 空串视为未配置（与旧行为一致："" or None → None）
+        base_url=s.llm_base_url or None,
+        api_key=s.effective_api_key(),
     )
 
 

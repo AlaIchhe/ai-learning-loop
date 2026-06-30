@@ -159,10 +159,30 @@ uv run python scripts/cleanup.py    # 清理所有开发/测试/构建垃圾
 | `scripts/cleanup.py` | Post-test garbage cleanup (cache dirs, build artifacts) |
 | `.model-config.json` | Persisted provider config (gitignored) |
 
+## 环境变量参考（core/settings.py 读取）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FRONTEND_PORT` | `3003` | Reflex 前端端口 |
+| `BACKEND_PORT` | `8003` | Reflex 后端端口 |
+| `DB_URL` | `sqlite:///reflex.db` | Reflex 数据库 |
+| `REFLEX_TRANSPORT` | `auto` | 传输协议：`auto`/`polling`/`websocket` |
+| `LLM_MODEL` | `gpt-4o` | LLM 模型名称 |
+| `LLM_BASE_URL` |（空） | LLM API 端点（空=OpenAI 官方） |
+| `LLM_API_KEY` |（空） | LLM API Key（优先级高于 OPENAI_API_KEY） |
+| `OPENAI_API_KEY` |（空） | OpenAI API Key（回退） |
+| `LANGCHAIN_TRACING_V2` | `false` | 启用 LangSmith 追踪 |
+| `LANGCHAIN_API_KEY` |（空） | LangSmith API Key |
+| `LANGCHAIN_PROJECT` | `ai-learning-loop` | LangSmith 项目名 |
+| `LLM_MAX_RETRIES` | `3` | LLM 调用最大重试次数（1-10） |
+| `LLM_RETRY_BACKOFF_BASE` | `1.0` | 指数退避基数（秒） |
+| `CONNECTION_TIMEOUT` | `10.0` | API 连通性测试超时（秒） |
+
 ## Key Design Notes
 
 - **Layered architecture**: `core/` (contracts) → `infra/` (infrastructure) → `agents/` (LLM nodes) → `workflow/` (orchestration) → `web/` (UI). Dependencies flow downward only.
-- **Windows transport**: `transport="polling"` in rxconfig.py (granian WS not supported)
+- **统一配置管理**: `core/settings.py`（pydantic-settings `BaseSettings`）是所有环境变量的唯一读取器，集中声明、验证、提供默认值。`infra/model.py:load_model_config()` 和 `has_configured_api_key()` 是其薄封装；`agents/_base.py` 重试配置、`infra/connection_test.py` 超时、`rxconfig.py` 端口/传输均从中读取。`.env` 由 `infra/env.py:setup_environment()`（`load_dotenv`）单一加载——`settings` 不自行加载 `.env`。端口在 `rxconfig.py` 与 `docker-compose.yml` 间通过 `FRONTEND_PORT`/`BACKEND_PORT` 环境变量统一，消除三处重复。`transport` 默认 `auto`（Windows→polling，其他→websocket），可通过 `REFLEX_TRANSPORT` 覆盖。
+- **Windows transport**: `transport="auto"` in rxconfig.py → `settings.effective_transport()`（Windows 自动 polling，其他平台 websocket，可用 `REFLEX_TRANSPORT` 覆盖）
 - **State serialization**: Use `list[dict]` not pydantic models
 - **Var operations**: Always use `rx.cond`/`rx.match`, never Python `if`/`else`
 - **Background tasks**: `rx_event(background=True)` (not `rx.background`)

@@ -56,12 +56,12 @@ ENV PYTHONUTF8=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# 暴露端口
+# 暴露端口（默认值；运行时可通过 -e 覆盖）
 EXPOSE 3003 8003
 
-# 健康检查
+# 健康检查（端口可通过环境变量覆盖，默认 8003）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)" || exit 1
+    CMD python -c "import urllib.request; port='${BACKEND_PORT:-8003}'; urllib.request.urlopen(f'http://localhost:{port}/health', timeout=5)" || exit 1
 
 # 启动命令（使用 console_scripts 入口）
 ENTRYPOINT ["ai-learning-loop"]

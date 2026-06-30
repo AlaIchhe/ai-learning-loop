@@ -15,8 +15,8 @@ services:
     image: ai-learning-loop:latest
     container_name: ai-learning-loop
     ports:
-      - "3003:3003"   # Reflex 前端
-      - "8003:8003"   # Reflex 后端
+      - "${FRONTEND_PORT:-3003}:${FRONTEND_PORT:-3003}"   # Reflex 前端
+      - "${BACKEND_PORT:-8003}:${BACKEND_PORT:-8003}"     # Reflex 后端
     env_file:
       - .env
     environment:
