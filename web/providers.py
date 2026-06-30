@@ -33,15 +33,17 @@ class ProviderMixin:
         result = []
         for eid, entry in store.configured_providers().items():
             preset_models = list(entry.preset().preset_models)
-            result.append({
-                "entry_id": eid,
-                "preset_id": entry.preset_id,
-                "label": entry.display_name,
-                "base_url": entry.base_url or entry.preset().base_url or "",
-                "status": entry.status,
-                "status_msg": entry.status_message,
-                "models": preset_models + list(entry.custom_models),
-            })
+            result.append(
+                {
+                    "entry_id": eid,
+                    "preset_id": entry.preset_id,
+                    "label": entry.display_name,
+                    "base_url": entry.base_url or entry.preset().base_url or "",
+                    "status": entry.status,
+                    "status_msg": entry.status_message,
+                    "models": preset_models + list(entry.custom_models),
+                }
+            )
         self.providers_list = result
 
     def show_add_provider(self):
@@ -86,6 +88,7 @@ class ProviderMixin:
             self.refresh_providers()
         except Exception:
             import traceback
+
             traceback.print_exc(file=sys.stderr)
 
     def test_provider_connection(self, entry_id: str):
@@ -108,6 +111,7 @@ class ProviderMixin:
             self.refresh_providers()
         except Exception:
             import traceback
+
             traceback.print_exc(file=sys.stderr)
 
     # ── 表单 setter ──

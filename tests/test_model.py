@@ -50,21 +50,25 @@ class TestLoadModelConfig:
     def test_llm_api_key_has_priority(self):
         from socratic_loop.infra.model import load_model_config
 
-        config = load_model_config({
-            "LLM_API_KEY": "sk-primary",
-            "OPENAI_API_KEY": "sk-fallback",
-        })
+        config = load_model_config(
+            {
+                "LLM_API_KEY": "sk-primary",
+                "OPENAI_API_KEY": "sk-fallback",
+            }
+        )
 
         assert config.api_key == "sk-primary"
 
     def test_empty_strings_become_absent_values(self):
         from socratic_loop.infra.model import load_model_config
 
-        config = load_model_config({
-            "LLM_MODEL": "deepseek-chat",
-            "LLM_BASE_URL": "",
-            "LLM_API_KEY": "",
-        })
+        config = load_model_config(
+            {
+                "LLM_MODEL": "deepseek-chat",
+                "LLM_BASE_URL": "",
+                "LLM_API_KEY": "",
+            }
+        )
 
         assert config.model_name == "deepseek-chat"
         assert config.base_url is None
@@ -122,18 +126,22 @@ class TestGetChatModelEnvVars:
 
     def test_uses_llm_model_env_var(self):
         """LLM_MODEL 环境变量应被正确读取。"""
-        kwargs = _call_with_env({
-            "LLM_MODEL": "deepseek-chat",
-            "LLM_API_KEY": "sk-test",
-        })
+        kwargs = _call_with_env(
+            {
+                "LLM_MODEL": "deepseek-chat",
+                "LLM_API_KEY": "sk-test",
+            }
+        )
         assert kwargs["model"] == "deepseek-chat"
 
     def test_uses_llm_base_url_env_var(self):
         """LLM_BASE_URL 环境变量应被正确读取。"""
-        kwargs = _call_with_env({
-            "LLM_BASE_URL": "https://api.deepseek.com/v1",
-            "LLM_API_KEY": "sk-test",
-        })
+        kwargs = _call_with_env(
+            {
+                "LLM_BASE_URL": "https://api.deepseek.com/v1",
+                "LLM_API_KEY": "sk-test",
+            }
+        )
         assert kwargs["base_url"] == "https://api.deepseek.com/v1"
 
     def test_uses_llm_api_key_directly(self):
@@ -148,10 +156,12 @@ class TestGetChatModelEnvVars:
 
     def test_llm_api_key_priority_over_openai(self):
         """LLM_API_KEY 优先级高于 OPENAI_API_KEY。"""
-        kwargs = _call_with_env({
-            "LLM_API_KEY": "sk-primary",
-            "OPENAI_API_KEY": "sk-fallback",
-        })
+        kwargs = _call_with_env(
+            {
+                "LLM_API_KEY": "sk-primary",
+                "OPENAI_API_KEY": "sk-fallback",
+            }
+        )
         assert kwargs["api_key"] == "sk-primary"
 
 
@@ -171,6 +181,7 @@ class TestGetChatModelMissingKey:
             pytest.warns(RuntimeWarning, match="未检测到"),
         ):
             from socratic_loop.infra.model import get_chat_model
+
             get_chat_model()
 
     def test_returns_instance_even_without_key(self):
@@ -181,6 +192,7 @@ class TestGetChatModelMissingKey:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 from socratic_loop.infra.model import get_chat_model
+
                 result = get_chat_model()
             assert result is mock_instance
 
@@ -200,18 +212,22 @@ class TestGetChatModelEmptyStrings:
 
     def test_empty_base_url_becomes_none(self):
         """LLM_BASE_URL='' 时 or None 应转为 None。"""
-        kwargs = _call_with_env({
-            "LLM_BASE_URL": "",
-            "LLM_API_KEY": "sk-test",
-        })
+        kwargs = _call_with_env(
+            {
+                "LLM_BASE_URL": "",
+                "LLM_API_KEY": "sk-test",
+            }
+        )
         assert kwargs["base_url"] is None
 
     def test_empty_llm_api_key_falls_back(self):
         """LLM_API_KEY='' 时应回退到 OPENAI_API_KEY。"""
-        kwargs = _call_with_env({
-            "LLM_API_KEY": "",
-            "OPENAI_API_KEY": "sk-openai-fallback",
-        })
+        kwargs = _call_with_env(
+            {
+                "LLM_API_KEY": "",
+                "OPENAI_API_KEY": "sk-openai-fallback",
+            }
+        )
         assert kwargs["api_key"] == "sk-openai-fallback"
 
 
@@ -225,16 +241,12 @@ class TestGetChatModelTemperature:
 
     def test_temperature_passed_to_chat_openai(self):
         """temperature=0.7 应被传入 ChatOpenAI。"""
-        kwargs = _call_with_env(
-            {"OPENAI_API_KEY": "sk-test"}, temperature=0.7
-        )
+        kwargs = _call_with_env({"OPENAI_API_KEY": "sk-test"}, temperature=0.7)
         assert kwargs["temperature"] == 0.7
 
     def test_temperature_zero_accepted(self):
         """temperature=0.0（裁判场景）应正常工作。"""
-        kwargs = _call_with_env(
-            {"OPENAI_API_KEY": "sk-test"}, temperature=0.0
-        )
+        kwargs = _call_with_env({"OPENAI_API_KEY": "sk-test"}, temperature=0.0)
         assert kwargs["temperature"] == 0.0
 
     def test_temperature_default_is_point_seven(self):

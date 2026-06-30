@@ -21,7 +21,7 @@ colors = {
         "text_primary": "#f1f5f9",
         "text_secondary": "#94a3b8",
         "border": "#334155",
-    }
+    },
 }
 
 # 全局样式

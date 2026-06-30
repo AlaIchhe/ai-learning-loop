@@ -52,19 +52,27 @@ class StreamingMixin:
                 return
             tab = self._active_tab()
             import uuid
+
             tid = str(uuid.uuid4())
-            self._update_tab(tab["id"],
-                thread_id=tid, topic=topic,
+            self._update_tab(
+                tab["id"],
+                thread_id=tid,
+                topic=topic,
                 messages=[_globals._mkmsg("system", f"开始讨论话题：**{topic}**")],
-                interrupt_value=None, awaiting_user_response=False,
-                is_generating=True, current_node="",
+                interrupt_value=None,
+                awaiting_user_response=False,
+                is_generating=True,
+                current_node="",
             )
             self.user_input = ""
             mc = self._model_cfg()
             initial_state = make_initial_state(
-                topic, agent_temperature=self.agent_temperature,
-                model_name=mc["model_name"], model_base_url=mc["base_url"],
-                model_api_key=mc["api_key"], model_json_mode=mc["json_mode"],
+                topic,
+                agent_temperature=self.agent_temperature,
+                model_name=mc["model_name"],
+                model_base_url=mc["base_url"],
+                model_api_key=mc["api_key"],
+                model_json_mode=mc["json_mode"],
                 max_rounds=self.max_rounds,
             )
             cfg = {"configurable": {"thread_id": tid}}
@@ -83,9 +91,13 @@ class StreamingMixin:
                 return
             resp = self.user_input
             msgs = [*tab["messages"], _globals._mkmsg("user", resp)]
-            self._update_tab(tab["id"],
-                messages=msgs, awaiting_user_response=False,
-                interrupt_value=None, is_generating=True, user_input="",
+            self._update_tab(
+                tab["id"],
+                messages=msgs,
+                awaiting_user_response=False,
+                interrupt_value=None,
+                is_generating=True,
+                user_input="",
             )
             self.user_input = ""
             cfg = {"configurable": {"thread_id": tab["thread_id"]}}
@@ -118,6 +130,7 @@ class StreamingMixin:
             pass
         except Exception:
             import traceback
+
             traceback.print_exc(file=sys.stderr)
 
         # 流结束 → 检测中断状态
@@ -166,17 +179,27 @@ class StreamingMixin:
                         critique = gs.values.get("_critique", "")
                         if critique:
                             msgs = [*tab["messages"], _globals._mkmsg("questioner", critique)]
-                            self._update_tab(tab_id, messages=msgs,
-                                interrupt_value=critique, awaiting_user_response=True,
-                                is_generating=False, current_node="")
+                            self._update_tab(
+                                tab_id,
+                                messages=msgs,
+                                interrupt_value=critique,
+                                awaiting_user_response=True,
+                                is_generating=False,
+                                current_node="",
+                            )
                             return
                     elif status == "awaiting_thesis_confirmation":
                         draft = gs.values.get("_draft_thesis", "")
                         if draft:
                             msgs = [*tab["messages"], _globals._mkmsg("refiner", draft)]
-                            self._update_tab(tab_id, messages=msgs,
-                                interrupt_value=draft, awaiting_user_response=True,
-                                is_generating=False, current_node="")
+                            self._update_tab(
+                                tab_id,
+                                messages=msgs,
+                                interrupt_value=draft,
+                                awaiting_user_response=True,
+                                is_generating=False,
+                                current_node="",
+                            )
                             return
             except Exception:
                 pass

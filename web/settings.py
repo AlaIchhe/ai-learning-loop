@@ -26,9 +26,12 @@ def provider_card(provider: dict) -> rx.Component:
                 rx.button(
                     rx.icon("trash-2", size=14),
                     on_click=AppState.remove_provider(entry_id),
-                    variant="ghost", size="1", color_scheme="red",
+                    variant="ghost",
+                    size="1",
+                    color_scheme="red",
                 ),
-                width="100%", align="center",
+                width="100%",
+                align="center",
             ),
             rx.text(base_url, font_size="0.8rem", color=colors["text_secondary"]),
             rx.cond(
@@ -36,11 +39,12 @@ def provider_card(provider: dict) -> rx.Component:
                 rx.text(status_msg, font_size="0.8rem", color=colors["text_secondary"]),
             ),
             rx.hstack(
-                rx.button("测试连接", on_click=AppState.test_provider_connection(entry_id),
-                          variant="soft", size="2"),
-                width="100%", justify="end",
+                rx.button("测试连接", on_click=AppState.test_provider_connection(entry_id), variant="soft", size="2"),
+                width="100%",
+                justify="end",
             ),
-            width="100%", spacing="2",
+            width="100%",
+            spacing="2",
         ),
         width="100%",
     )
@@ -80,9 +84,12 @@ def add_provider_form() -> rx.Component:
             rx.hstack(
                 rx.button("取消", on_click=AppState.show_add_provider, variant="soft"),
                 rx.button("添加", on_click=AppState.add_provider, color_scheme="blue"),
-                width="100%", justify="end", spacing="3",
+                width="100%",
+                justify="end",
+                spacing="3",
             ),
-            width="100%", spacing="3",
+            width="100%",
+            spacing="3",
         ),
         width="100%",
     )
@@ -91,6 +98,7 @@ def add_provider_form() -> rx.Component:
 def settings_page() -> rx.Component:
     """模型设置主页面。"""
     from .chat import sidebar
+
     return rx.hstack(
         sidebar(),
         rx.box(
@@ -98,23 +106,25 @@ def settings_page() -> rx.Component:
                 rx.heading("模型设置", size="7", margin_bottom="2rem"),
                 rx.text(
                     "配置 AI 模型提供商，支持多个提供商同时配置。",
-                    color=colors["text_secondary"], margin_bottom="2rem",
+                    color=colors["text_secondary"],
+                    margin_bottom="2rem",
                 ),
-
                 # 提供商列表
                 rx.heading("已配置提供商", size="5", margin_bottom="1rem"),
                 rx.cond(
                     AppState.providers_list.length() > 0,
                     rx.vstack(
                         rx.foreach(AppState.providers_list, provider_card),
-                        width="100%", spacing="3",
+                        width="100%",
+                        spacing="3",
                     ),
                     rx.box(
                         rx.text("暂无配置的提供商。点击下方按钮添加。", color=colors["text_secondary"]),
-                        padding="2rem", text_align="center", width="100%",
+                        padding="2rem",
+                        text_align="center",
+                        width="100%",
                     ),
                 ),
-
                 # 添加新提供商
                 rx.cond(
                     AppState.setting_show_add,
@@ -122,13 +132,20 @@ def settings_page() -> rx.Component:
                     rx.button(
                         "+ 添加新提供商",
                         on_click=AppState.show_add_provider,
-                        variant="soft", size="3", width="100%", margin_top="1rem",
+                        variant="soft",
+                        size="3",
+                        width="100%",
+                        margin_top="1rem",
                     ),
                 ),
-                width="100%", align_items="flex-start",
+                width="100%",
+                align_items="flex-start",
             ),
-            class_name="main-content", margin_left="280px", padding_top="2rem",
+            class_name="main-content",
+            margin_left="280px",
+            padding_top="2rem",
         ),
-        width="100%", height="100vh",
+        width="100%",
+        height="100vh",
         on_mount=[AppState.initialize, AppState.refresh_providers],
     )

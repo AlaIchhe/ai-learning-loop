@@ -152,6 +152,7 @@ class ModelStore:
                 preset_id = raw.get("preset_id", "custom")
                 # 防御：若 preset_id 未知（老版本/拼写错误），回退到 custom
                 from socratic_loop.infra.providers import PRESET_PROVIDERS  # 延迟导入避免循环
+
                 if preset_id not in PRESET_PROVIDERS:
                     preset_id = "custom"
                 providers[str(entry_id)] = ProviderEntry(
@@ -367,6 +368,8 @@ class ModelStore:
 
 
 def _valid_status(value: object) -> ProviderStatus:
-    if value in ("ok", "error", "unconfigured"):
-        return value  # type: ignore[return-value]
+    if value == "ok":
+        return "ok"
+    if value == "error":
+        return "error"
     return "unconfigured"

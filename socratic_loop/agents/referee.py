@@ -85,11 +85,15 @@ def referee_deliberate_node(
 
     if effective_json_mode:
         judgment = _judge_via_json_mode(
-            model, state, history_summary,
+            model,
+            state,
+            history_summary,
         )
     else:
         judgment = _judge_via_structured_output(
-            model, state, history_summary,
+            model,
+            state,
+            history_summary,
         )
 
     # --- Step 2: 本轮归档 ---
@@ -106,9 +110,7 @@ def referee_deliberate_node(
     else:
         result["status"] = "done"
         final_summary_text = _generate_final_summary(model, state, result, judgment)
-        result["messages"] = state["messages"] + [
-            make_message("referee", final_summary_text, state["round"])
-        ]
+        result["messages"] = state["messages"] + [make_message("referee", final_summary_text, state["round"])]
         result["final_result"] = final_summary_text
 
     return result
@@ -138,9 +140,7 @@ def _judge_via_structured_output(
         )
     )
 
-    raw = invoke_with_retry(
-        structured_model, [system_msg, user_msg], label="RefereeJudgment"
-    )
+    raw = invoke_with_retry(structured_model, [system_msg, user_msg], label="RefereeJudgment")
     return raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)  # type: ignore[arg-type]
 
 
@@ -170,19 +170,17 @@ def _judge_via_json_mode(
         )
     )
 
-    response = invoke_with_retry(
-        model, [system_msg, user_msg], label="RefereeJudgment(JSON-mode)"
-    )
+    response = invoke_with_retry(model, [system_msg, user_msg], label="RefereeJudgment(JSON-mode)")
     content = extract_content(response).strip()
 
     parsed = _extract_json(content)
     if parsed is None:
         raise ValueError(f"无法从裁判响应中解析 JSON:\n{content[:500]}")
 
-    return RefereeJudgment(**parsed)
+    return RefereeJudgment(**parsed)  # type: ignore[arg-type]  # runtime-validated by _extract_json + pydantic
 
 
-def _extract_json(text: str) -> dict | None:
+def _extract_json(text: str) -> dict[str, object] | None:
     """从 LLM 响应中提取 JSON 对象。兼容含 Markdown 代码块的输出。
 
     按优先级尝试：
@@ -192,26 +190,32 @@ def _extract_json(text: str) -> dict | None:
     """
     # 直接解析
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
         pass
+    else:
+        return parsed if isinstance(parsed, dict) else None
 
     # 提取 ```json ... ``` 代码块
     match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if match:
         try:
-            return json.loads(match.group(1).strip())
+            parsed = json.loads(match.group(1).strip())
         except json.JSONDecodeError:
             pass
+        else:
+            return parsed if isinstance(parsed, dict) else None
 
     # 提取最外层 { ... }
     brace_start = text.find("{")
     brace_end = text.rfind("}")
     if brace_start != -1 and brace_end > brace_start:
         try:
-            return json.loads(text[brace_start:brace_end + 1])
+            parsed = json.loads(text[brace_start : brace_end + 1])
         except json.JSONDecodeError:
             pass
+        else:
+            return parsed if isinstance(parsed, dict) else None
 
     return None
 
@@ -280,9 +284,7 @@ def _generate_final_summary(
             history_json=history_json,
         )
     )
-    summary_response = invoke_with_retry(
-        model, [summary_system, summary_user], label="FinalSummary"
-    )
+    summary_response = invoke_with_retry(model, [summary_system, summary_user], label="FinalSummary")
     return extract_content(summary_response).strip()
 
 
@@ -294,8 +296,9 @@ def _get_initial_thesis(state: AgentState) -> str:
     """
     if state["history"]:
         first = state["history"][0]
-        return str(
-            first.thesis_before if hasattr(first, "thesis_before")
-            else first.get("thesis_before", state["current_thesis"])  # type: ignore[union-attr]
-        )
+        if hasattr(first, "thesis_before"):
+            return str(first.thesis_before)
+        if isinstance(first, dict):
+            return str(first.get("thesis_before", state["current_thesis"]))
+        return state["current_thesis"]
     return state["current_thesis"]

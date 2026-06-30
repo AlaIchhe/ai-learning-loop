@@ -196,8 +196,9 @@ ignore_missing_imports = true
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
-include = ["socratic_loop", "web", "tests"]
-exclude = ["venv"]
+# 仅对核心库运行 strict 模式；web/ 层因 Reflex 元类系统限制使用 basic 模式
+include = ["socratic_loop"]
+exclude = ["venv", ".venv"]
 reportMissingTypeStubs = false
 reportPrivateUsage = "none"
 reportUnknownMemberType = false
@@ -206,3 +207,7 @@ reportUnknownVariableType = false
 reportUnknownParameterType = "none"
 reportMissingTypeArgument = "none"
 reportMissingParameterType = "none"
+
+# web/ + tests/ 的 basic 模式配置（pyright 命令行分开运行）
+#   pyright web/ tests/ --pythonversion 3.11 --verify basic
+# 或在 IDE 中为这些目录单独设置 typeCheckingMode

@@ -25,11 +25,13 @@ def main() -> None:
     # ── 参数处理 ──
     if "--version" in sys.argv:
         from socratic_loop import __version__
+
         print(f"ai-learning-loop {__version__}")
         return
 
     if "--export-graph" in sys.argv:
         from socratic_loop.workflow.graph import export_graph
+
         export_graph()
         return
 

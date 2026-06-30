@@ -204,10 +204,15 @@ class AppState(StreamingMixin, ProviderMixin, rx.State):
     def clear_active_session(self):
         """清空当前 tab 的对话数据。"""
         tab = self._active_tab()
-        self._update_tab(tab["id"],
-            messages=[], topic="", interrupt_value=None,
-            awaiting_user_response=False, is_generating=False,
-            thread_id="", current_node="",
+        self._update_tab(
+            tab["id"],
+            messages=[],
+            topic="",
+            interrupt_value=None,
+            awaiting_user_response=False,
+            is_generating=False,
+            thread_id="",
+            current_node="",
         )
         self.user_input = ""
 

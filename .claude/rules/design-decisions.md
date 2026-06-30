@@ -23,8 +23,9 @@ description: 关键设计决策 — Compute/Interact 拆分、拼合式演化、
 - **Shared test infrastructure**: `tests/helpers.py` and `tests/mock_nodes.py` eliminate quadruple duplication.
 - **`checkpointer` injected at graph build time**: `build_graph()` accepts it as a parameter.
 - **Multi-provider via ModelStore**: Runtime model selection flows through `core.model_store.ModelStore` (persisted to `.model-config.json`), supporting multiple providers side-by-side with per-tab frozen isolation. Adding a new preset provider is a `ProviderPreset` entry in `core/providers.py`. Env-var path preserved for scripts/backward compatibility (`get_chat_model()` still reads `LLM_MODEL`/`LLM_BASE_URL`/`LLM_API_KEY` when called without explicit kwargs).
-- **Static analysis enforced**: Ruff (lint), pyright (strict mode), and mypy all pass with zero issues.
+- **Static analysis enforced**: Ruff (lint), pyright (strict mode on `socratic_loop/`), and mypy (on `socratic_loop/core|agents|infra|workflow`) all pass with zero issues. `web/` and `tests/` are excluded from strict pyright due to Reflex metaclass limitations — they rely on ruff + runtime tests.
 - **CI gate**: push/PR triggers automatic pytest + ruff + pyright + mypy without real API keys.
+- **Type annotation policy**: All new public APIs in `socratic_loop/` must have full type annotations (params + return). Use `from __future__ import annotations` for forward references. `TYPE_CHECKING` guard for circular imports. `Protocol` for duck-typed interfaces (e.g. `_Invocable`). Minimize `Any` — use `cast()` with comment when interfacing with untyped third-party code (langchain stubs).
 - **Multi-tab via shared graph**: One `MemorySaver` + compiled graph serve all tabs. Each tab gets a unique `thread_id`. Reflex state mirrors active tab via `_sync_active()`.
 - **Streaming via async background tasks**: `@rx_event(background=True)` runs LangGraph streaming in background. Token updates pushed via `async with self` state mutations. No flag-based decoupling needed.
 - **Configurable agent temperature**: `agent_temperature` (0.0–1.5, default 0.7) stored in `AgentState`. Referee stays at 0.0.

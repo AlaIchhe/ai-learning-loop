@@ -89,7 +89,8 @@ class TestNodeOutputInterface:
 
     def test_opponent_interact_output_keys_match_state(self):
         state = make_state(
-            _critique="c", status="awaiting_critique_response",
+            _critique="c",
+            status="awaiting_critique_response",
         )
         # Mock interrupt to avoid GraphInterrupt
         with patch("socratic_loop.agents.opponent.interrupt") as mock_int:
@@ -107,7 +108,8 @@ class TestNodeOutputInterface:
 
     def test_presenter_interact_output_keys_match_state(self):
         state = make_state(
-            _draft_thesis="d", status="awaiting_thesis_confirmation",
+            _draft_thesis="d",
+            status="awaiting_thesis_confirmation",
         )
         with patch("socratic_loop.agents.presenter.interrupt") as mock_int:
             mock_int.return_value = "确认"
@@ -117,15 +119,18 @@ class TestNodeOutputInterface:
 
     def test_referee_output_keys_match_state(self):
         state = make_state(
-            _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         # Mock the full referee flow
         mock_model = MagicMock()
         structured_mock = MagicMock()
         structured_mock.invoke.return_value = RefereeJudgment(
             continue_debate=True,
-            new_thesis="新论题", reasoning="理由",
+            new_thesis="新论题",
+            reasoning="理由",
         )
         mock_model.with_structured_output.return_value = structured_mock
         mock_model.invoke.return_value = MagicMock(content="总结")
@@ -151,8 +156,10 @@ class TestNodeOutputInterface:
     def test_all_nodes_produce_same_message_structure(self):
         """所有节点产生的消息都包含 role/content/round。"""
         state = make_state(
-            _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         model = make_mock_model("测试内容")
 
@@ -161,7 +168,8 @@ class TestNodeOutputInterface:
         structured_mock = MagicMock()
         structured_mock.invoke.return_value = RefereeJudgment(
             continue_debate=True,
-            new_thesis="新论题", reasoning="理由",
+            new_thesis="新论题",
+            reasoning="理由",
         )
         mock_ref_model.with_structured_output.return_value = structured_mock
         mock_ref_model.invoke.return_value = MagicMock(content="总结")
@@ -204,10 +212,14 @@ class TestSerializationFidelity:
     def test_round_record_roundtrip(self):
         original = RoundRecord(
             round_number=1,
-            thesis_before="原始论题", critique="批判",
-            user_response="回应", draft_thesis="草稿",
-            confirmed_thesis="确认版", thesis_after="演化论题",
-            continue_debate=True, referee_reasoning="理由",
+            thesis_before="原始论题",
+            critique="批判",
+            user_response="回应",
+            draft_thesis="草稿",
+            confirmed_thesis="确认版",
+            thesis_after="演化论题",
+            continue_debate=True,
+            referee_reasoning="理由",
         )
         restored = RoundRecord(**original.model_dump())
         assert restored.round_number == original.round_number
@@ -239,54 +251,65 @@ class TestCheckpointInterface:
         checkpointer = MemorySaver()
         from langgraph.types import Command
 
-        def _mock_oc(state): return {
-            "_critique": "批判", "messages": state["messages"] + [
-                {"role": "opponent", "content": "批判", "round": 1}
-            ], "status": "awaiting_critique_response",
-        }
+        def _mock_oc(state):
+            return {
+                "_critique": "批判",
+                "messages": state["messages"] + [{"role": "opponent", "content": "批判", "round": 1}],
+                "status": "awaiting_critique_response",
+            }
 
         def _mock_oi(state):
             from langgraph.types import interrupt
+
             resp = interrupt(state["_critique"])
             return {
-                "_user_response": str(resp), "messages": state["messages"] + [
-                    {"role": "user", "content": str(resp), "round": 1}
-                ], "status": "presenter_computing",
+                "_user_response": str(resp),
+                "messages": state["messages"] + [{"role": "user", "content": str(resp), "round": 1}],
+                "status": "presenter_computing",
             }
 
-        def _mock_pc(state): return {
-            "_draft_thesis": "草稿", "messages": state["messages"] + [
-                {"role": "presenter", "content": "草稿", "round": 1}
-            ], "status": "awaiting_thesis_confirmation",
-        }
+        def _mock_pc(state):
+            return {
+                "_draft_thesis": "草稿",
+                "messages": state["messages"] + [{"role": "presenter", "content": "草稿", "round": 1}],
+                "status": "awaiting_thesis_confirmation",
+            }
 
         def _mock_pi(state):
             from langgraph.types import interrupt
+
             cf = interrupt(state["_draft_thesis"])
             return {
-                "_confirmed_thesis": str(cf), "messages": state["messages"] + [
-                    {"role": "user", "content": str(cf), "round": 1}
-                ], "status": "referee_deliberating",
+                "_confirmed_thesis": str(cf),
+                "messages": state["messages"] + [{"role": "user", "content": str(cf), "round": 1}],
+                "status": "referee_deliberating",
             }
 
         def _mock_rd(state):
             record = RoundRecord(
-                round_number=1, thesis_before=state["current_thesis"],
-                critique=state["_critique"], user_response=state["_user_response"],
+                round_number=1,
+                thesis_before=state["current_thesis"],
+                critique=state["_critique"],
+                user_response=state["_user_response"],
                 draft_thesis=state["_draft_thesis"],
                 confirmed_thesis=state["_confirmed_thesis"],
-                thesis_after="最终论题", continue_debate=False,
+                thesis_after="最终论题",
+                continue_debate=False,
                 referee_reasoning="完成",
             )
             return {
-                "messages": state["messages"] + [
-                    {"role": "referee", "content": "结束", "round": 1}
-                ], "history": state["history"] + [record],
-                "status": "done", "final_result": "报告",
+                "messages": state["messages"] + [{"role": "referee", "content": "结束", "round": 1}],
+                "history": state["history"] + [record],
+                "status": "done",
+                "final_result": "报告",
             }
 
         graph = build_graph(
-            _mock_oc, _mock_oi, _mock_pc, _mock_pi, _mock_rd,
+            _mock_oc,
+            _mock_oi,
+            _mock_pc,
+            _mock_pi,
+            _mock_rd,
             checkpointer=checkpointer,
         )
 
@@ -316,32 +339,40 @@ class TestCheckpointInterface:
         checkpointer = MemorySaver()
         from langgraph.types import Command
 
-        def _oc(state): return {
-            "_critique": "批判", "messages": state["messages"] + [
-                {"role": "opponent", "content": "批判", "round": state["round"]}
-            ], "status": "awaiting_critique_response",
-        }
+        def _oc(state):
+            return {
+                "_critique": "批判",
+                "messages": state["messages"] + [{"role": "opponent", "content": "批判", "round": state["round"]}],
+                "status": "awaiting_critique_response",
+            }
+
         def _oi(state):
             from langgraph.types import interrupt
+
             r = interrupt(state["_critique"])
             return {
-                "_user_response": str(r), "messages": state["messages"] + [
-                    {"role": "user", "content": str(r), "round": state["round"]}
-                ], "status": "presenter_computing",
+                "_user_response": str(r),
+                "messages": state["messages"] + [{"role": "user", "content": str(r), "round": state["round"]}],
+                "status": "presenter_computing",
             }
-        def _pc(state): return {
-            "_draft_thesis": "草稿", "messages": state["messages"] + [
-                {"role": "presenter", "content": "草稿", "round": state["round"]}
-            ], "status": "awaiting_thesis_confirmation",
-        }
+
+        def _pc(state):
+            return {
+                "_draft_thesis": "草稿",
+                "messages": state["messages"] + [{"role": "presenter", "content": "草稿", "round": state["round"]}],
+                "status": "awaiting_thesis_confirmation",
+            }
+
         def _pi(state):
             from langgraph.types import interrupt
+
             cf = interrupt(state["_draft_thesis"])
             return {
-                "_confirmed_thesis": str(cf), "messages": state["messages"] + [
-                    {"role": "user", "content": str(cf), "round": state["round"]}
-                ], "status": "referee_deliberating",
+                "_confirmed_thesis": str(cf),
+                "messages": state["messages"] + [{"role": "user", "content": str(cf), "round": state["round"]}],
+                "status": "referee_deliberating",
             }
+
         def _rd(state):
             record = RoundRecord(
                 round_number=state["round"],
@@ -356,14 +387,18 @@ class TestCheckpointInterface:
             )
             return {
                 "current_thesis": "演化后-V1",
-                "messages": state["messages"] + [
-                    {"role": "referee", "content": "继续", "round": state["round"]}
-                ], "history": state["history"] + [record],
+                "messages": state["messages"] + [{"role": "referee", "content": "继续", "round": state["round"]}],
+                "history": state["history"] + [record],
                 "status": "opponent_computing",
             }
 
         graph = build_graph(
-            _oc, _oi, _pc, _pi, _rd, checkpointer=checkpointer,
+            _oc,
+            _oi,
+            _pc,
+            _pi,
+            _rd,
+            checkpointer=checkpointer,
         )
 
         config: dict = {"configurable": {"thread_id": str(uuid4())}}
@@ -410,9 +445,13 @@ class TestRoutingInterface:
 
     def test_route_never_returns_ambiguous(self):
         all_statuses = [
-            "idle", "opponent_computing", "awaiting_critique_response",
-            "presenter_computing", "awaiting_thesis_confirmation",
-            "referee_deliberating", "done",
+            "idle",
+            "opponent_computing",
+            "awaiting_critique_response",
+            "presenter_computing",
+            "awaiting_thesis_confirmation",
+            "referee_deliberating",
+            "done",
         ]
         from langgraph.graph import END
 
@@ -532,10 +571,14 @@ class TestSerializationEdgeCases:
         """RoundRecord model_dump → 重建验证（完整往返）。"""
         record = RoundRecord(
             round_number=1,
-            thesis_before="A", critique="B",
-            user_response="C", draft_thesis="D",
-            confirmed_thesis="E", thesis_after="F",
-            continue_debate=False, referee_reasoning="完成",
+            thesis_before="A",
+            critique="B",
+            user_response="C",
+            draft_thesis="D",
+            confirmed_thesis="E",
+            thesis_after="F",
+            continue_debate=False,
+            referee_reasoning="完成",
         )
         restored = RoundRecord(**record.model_dump())
         assert restored.round_number == record.round_number

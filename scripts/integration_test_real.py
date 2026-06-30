@@ -52,9 +52,9 @@ from socratic_loop.infra.model import get_chat_model, has_configured_api_key  # 
 
 
 def _header(title: str) -> None:
-    print(f"\n{'='*65}")
+    print(f"\n{'=' * 65}")
     print(f"  {title}")
-    print(f"{'='*65}")
+    print(f"{'=' * 65}")
 
 
 def _sub(title: str) -> None:
@@ -94,10 +94,12 @@ def test_opponent_agent() -> bool:
 
     _info(f"论题: {thesis}")
     t0 = time.time()
-    response = model.invoke([
-        SystemMessage(content=OPPONENT_SYSTEM_PROMPT),
-        HumanMessage(content=opponent_prompt(thesis)),
-    ])
+    response = model.invoke(
+        [
+            SystemMessage(content=OPPONENT_SYSTEM_PROMPT),
+            HumanMessage(content=opponent_prompt(thesis)),
+        ]
+    )
     elapsed = time.time() - t0
 
     content = response.content if isinstance(response.content, str) else str(response.content)
@@ -153,10 +155,12 @@ def test_presenter_agent() -> bool:
     _info(f"用户回应: {user_response}")
 
     t0 = time.time()
-    response = model.invoke([
-        SystemMessage(content=PRESENTER_SYSTEM_PROMPT),
-        HumanMessage(content=presenter_prompt(thesis, critique, user_response)),
-    ])
+    response = model.invoke(
+        [
+            SystemMessage(content=PRESENTER_SYSTEM_PROMPT),
+            HumanMessage(content=presenter_prompt(thesis, critique, user_response)),
+        ]
+    )
     elapsed = time.time() - t0
 
     content = response.content if isinstance(response.content, str) else str(response.content)
@@ -190,7 +194,6 @@ def test_presenter_agent() -> bool:
 def test_referee_agent() -> bool:
     """验证 Referee 裁判节点（JSON-mode，适配 DeepSeek）正确输出结构化判定。"""
     _header("测试 3: Referee Agent - JSON-mode（真实 API，适配 DeepSeek）")
-
 
     state: AgentState = {
         "current_thesis": "AI应受监管。",
@@ -304,7 +307,7 @@ def test_workflow_single_round() -> bool:
     result = graph.invoke(make_initial_state(thesis), config)
     t1 = time.time()
 
-    _info(f"状态: {result['status']} | 延迟: {t1-t0:.2f}s")
+    _info(f"状态: {result['status']} | 延迟: {t1 - t0:.2f}s")
     _info(f"Opponent 批判: {result['_critique'][:100]}")
 
     ok = True
@@ -322,14 +325,13 @@ def test_workflow_single_round() -> bool:
     # ---- Step 2: resume with user response → 停在 presenter_interact ----
     _sub("Step 2: resume 用户回应")
     user_reply = (
-        "我同意监管应该有区别。高风险领域如医疗诊断和自动驾驶必须严格监管，"
-        "但低风险的AI应用可以给予更多自由度。"
+        "我同意监管应该有区别。高风险领域如医疗诊断和自动驾驶必须严格监管，但低风险的AI应用可以给予更多自由度。"
     )
     t0 = time.time()
     result = graph.invoke(Command(resume=user_reply), config)
     t1 = time.time()
 
-    _info(f"状态: {result['status']} | 延迟: {t1-t0:.2f}s")
+    _info(f"状态: {result['status']} | 延迟: {t1 - t0:.2f}s")
     _info(f"Presenter 草稿: {result['_draft_thesis'][:120]}")
 
     if result["status"] != "awaiting_thesis_confirmation":
@@ -350,7 +352,7 @@ def test_workflow_single_round() -> bool:
     result = graph.invoke(Command(resume=result["_draft_thesis"]), config)
     t1 = time.time()
 
-    _info(f"状态: {result['status']} | 延迟: {t1-t0:.2f}s")
+    _info(f"状态: {result['status']} | 延迟: {t1 - t0:.2f}s")
     if result["status"] == "done":
         _info(f"最终论题: {result['current_thesis'][:150]}...")
         _info(f"最终总结: {result['final_result'][:150]}...")
@@ -584,9 +586,9 @@ def main():
         results["Checkpoint 持久性"] = test_checkpoint_persistence()
 
     # 总结
-    print(f"\n{'='*65}")
+    print(f"\n{'=' * 65}")
     print("  测试总结")
-    print(f"{'='*65}")
+    print(f"{'=' * 65}")
     passed = sum(1 for v in results.values() if v)
     failed = sum(1 for v in results.values() if not v)
     for name, ok in results.items():

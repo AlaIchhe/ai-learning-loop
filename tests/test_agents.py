@@ -80,9 +80,7 @@ class TestOpponentComputeNode:
         assert msgs[0]["round"] == 2
 
     def test_does_not_mutate_original_state(self):
-        original = make_state(
-            current_thesis="原始论题", messages=[], status="opponent_computing"
-        )
+        original = make_state(current_thesis="原始论题", messages=[], status="opponent_computing")
         model = make_mock_model("批判")
         opponent_compute_node(original, model=model)
 
@@ -210,9 +208,7 @@ class TestPresenterComputeNode:
         assert msgs[0]["round"] == 1
 
     def test_does_not_mutate_original_state(self):
-        original = make_state(
-            _critique="批判", _user_response="用户回应", messages=[]
-        )
+        original = make_state(_critique="批判", _user_response="用户回应", messages=[])
         model = make_mock_model("精确化论题")
         presenter_compute_node(original, model=model)
 
@@ -333,8 +329,10 @@ class TestRefereeDeliberateNode:
 
     def test_status_continue_when_not_done(self):
         state = make_state(
-            _critique="批判", _user_response="回应",
-            _draft_thesis="草稿", _confirmed_thesis="确认",
+            _critique="批判",
+            _user_response="回应",
+            _draft_thesis="草稿",
+            _confirmed_thesis="确认",
         )
         judgment = self._make_judgment(continue_debate=True)
         model = _make_mock_referee_model(judgment)
@@ -348,8 +346,10 @@ class TestRefereeDeliberateNode:
 
     def test_status_done_when_referee_ends(self):
         state = make_state(
-            _critique="批判", _user_response="回应",
-            _draft_thesis="草稿", _confirmed_thesis="确认",
+            _critique="批判",
+            _user_response="回应",
+            _draft_thesis="草稿",
+            _confirmed_thesis="确认",
         )
         judgment = self._make_judgment(continue_debate=False)
         model = _make_mock_referee_model(judgment)
@@ -365,8 +365,11 @@ class TestRefereeDeliberateNode:
     def test_no_referee_message_when_continue(self):
         """正常轮次（continue_debate=True）：裁判不产生对用户可见的消息。"""
         state = make_state(
-            messages=[], _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            messages=[],
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         judgment = self._make_judgment(continue_debate=True)
         model = _make_mock_referee_model(judgment)
@@ -378,8 +381,11 @@ class TestRefereeDeliberateNode:
     def test_appends_referee_message_when_done(self):
         """辩论终止（continue_debate=False）：裁判输出最终总结作为消息。"""
         state = make_state(
-            messages=[], _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            messages=[],
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         judgment = self._make_judgment(continue_debate=False)
         model = _make_mock_referee_model(judgment)
@@ -392,8 +398,11 @@ class TestRefereeDeliberateNode:
 
     def test_appends_round_record_to_history(self):
         state = make_state(
-            history=[], _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            history=[],
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
             current_thesis="进入轮次的论题",
         )
         judgment = self._make_judgment(new_thesis="拼合后论题")
@@ -417,15 +426,22 @@ class TestRefereeDeliberateNode:
     def test_preserves_existing_history(self):
         existing = RoundRecord(
             round_number=1,
-            thesis_before="旧论题", critique="旧批判",
-            user_response="旧回应", draft_thesis="旧草稿",
-            confirmed_thesis="旧确认", thesis_after="旧拼合",
-            continue_debate=True, referee_reasoning="旧理由",
+            thesis_before="旧论题",
+            critique="旧批判",
+            user_response="旧回应",
+            draft_thesis="旧草稿",
+            confirmed_thesis="旧确认",
+            thesis_after="旧拼合",
+            continue_debate=True,
+            referee_reasoning="旧理由",
         )
         state = make_state(
-            history=[existing], round=2,
-            _critique="c2", _user_response="u2",
-            _draft_thesis="d2", _confirmed_thesis="cf2",
+            history=[existing],
+            round=2,
+            _critique="c2",
+            _user_response="u2",
+            _draft_thesis="d2",
+            _confirmed_thesis="cf2",
             current_thesis="旧拼合",
         )
         judgment = self._make_judgment(new_thesis="新拼合")
@@ -439,8 +455,11 @@ class TestRefereeDeliberateNode:
 
     def test_does_not_mutate_original_state(self):
         original = make_state(
-            history=[], _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            history=[],
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         judgment = self._make_judgment()
         model = _make_mock_referee_model(judgment)
@@ -451,8 +470,10 @@ class TestRefereeDeliberateNode:
 
     def test_judgment_is_referee_judgment_instance(self):
         state = make_state(
-            _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         judgment = self._make_judgment()
         model = _make_mock_referee_model(judgment)
@@ -521,7 +542,10 @@ class TestOpponentEdgeCases:
             result = opponent_compute_node(state, model=None)
         assert "_critique" in result
         mock_get.assert_called_once_with(
-            temperature=0.7, model_name=None, base_url=None, api_key=None,
+            temperature=0.7,
+            model_name=None,
+            base_url=None,
+            api_key=None,
         )
 
     def test_empty_llm_response_handled(self):
@@ -580,7 +604,10 @@ class TestPresenterEdgeCases:
             result = presenter_compute_node(state, model=None)
         assert "_draft_thesis" in result
         mock_get.assert_called_once_with(
-            temperature=0.7, model_name=None, base_url=None, api_key=None,
+            temperature=0.7,
+            model_name=None,
+            base_url=None,
+            api_key=None,
         )
 
     def test_empty_llm_response_handled(self):
@@ -623,8 +650,10 @@ class TestRefereeEdgeCases:
     def test_model_none_uses_default(self):
         """model=None 时应调用 get_chat_model() 获取默认 LLM。"""
         state = make_state(
-            _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         judgment = self._make_judgment()
         with patch("socratic_loop.agents.referee.get_chat_model") as mock_get:
@@ -640,26 +669,33 @@ class TestRefereeEdgeCases:
             result = referee_deliberate_node(state, model=None)
         assert "status" in result
         mock_get.assert_called_once_with(
-            temperature=0.0, model_name=None, base_url=None, api_key=None,
+            temperature=0.0,
+            model_name=None,
+            base_url=None,
+            api_key=None,
         )
 
     def test_dict_format_history_from_checkpoint(self):
         """checkpoint 恢复后 history 元素为 dict（非 Pydantic）时兼容。"""
         state = make_state(
-            history=[{
-                "round_number": 1,
-                "thesis_before": "旧论题",
-                "critique": "旧批判",
-                "user_response": "旧回应",
-                "draft_thesis": "旧草稿",
-                "confirmed_thesis": "旧确认",
-                "thesis_after": "旧拼合",
-                "continue_debate": True,
-                "referee_reasoning": "理由",
-            }],
+            history=[
+                {
+                    "round_number": 1,
+                    "thesis_before": "旧论题",
+                    "critique": "旧批判",
+                    "user_response": "旧回应",
+                    "draft_thesis": "旧草稿",
+                    "confirmed_thesis": "旧确认",
+                    "thesis_after": "旧拼合",
+                    "continue_debate": True,
+                    "referee_reasoning": "理由",
+                }
+            ],
             round=2,
-            _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
             current_thesis="旧拼合",
         )
         judgment = self._make_judgment(new_thesis="新拼合")
@@ -673,17 +709,19 @@ class TestRefereeEdgeCases:
     def test_done_with_dict_history_generates_final_summary(self):
         """终局总结应兼容 checkpoint 恢复后的 dict 格式 history。"""
         state = make_state(
-            history=[{
-                "round_number": 1,
-                "thesis_before": "初始论题",
-                "critique": "旧批判",
-                "user_response": "旧回应",
-                "draft_thesis": "旧草稿",
-                "confirmed_thesis": "旧确认",
-                "thesis_after": "旧拼合",
-                "continue_debate": True,
-                "referee_reasoning": "继续",
-            }],
+            history=[
+                {
+                    "round_number": 1,
+                    "thesis_before": "初始论题",
+                    "critique": "旧批判",
+                    "user_response": "旧回应",
+                    "draft_thesis": "旧草稿",
+                    "confirmed_thesis": "旧确认",
+                    "thesis_after": "旧拼合",
+                    "continue_debate": True,
+                    "referee_reasoning": "继续",
+                }
+            ],
             round=2,
             current_thesis="旧拼合",
             _critique="c2",
@@ -764,14 +802,19 @@ class TestRefereeEdgeCases:
         from socratic_loop.agents.referee import _get_initial_thesis
 
         state = make_state(
-            history=[{
-                "round_number": 1,
-                "thesis_before": "初始论题（dict格式）",
-                "critique": "c", "user_response": "u",
-                "draft_thesis": "d", "confirmed_thesis": "cf",
-                "thesis_after": "后", "continue_debate": True,
-                "referee_reasoning": "r",
-            }],
+            history=[
+                {
+                    "round_number": 1,
+                    "thesis_before": "初始论题（dict格式）",
+                    "critique": "c",
+                    "user_response": "u",
+                    "draft_thesis": "d",
+                    "confirmed_thesis": "cf",
+                    "thesis_after": "后",
+                    "continue_debate": True,
+                    "referee_reasoning": "r",
+                }
+            ],
             current_thesis="当前论题",
         )
         result = _get_initial_thesis(state)
@@ -789,8 +832,10 @@ class TestRefereeEdgeCases:
         """大轮次编号（9999）不导致崩溃。"""
         state = make_state(
             round=9999,
-            _critique="c", _user_response="u",
-            _draft_thesis="d", _confirmed_thesis="cf",
+            _critique="c",
+            _user_response="u",
+            _draft_thesis="d",
+            _confirmed_thesis="cf",
         )
         judgment = self._make_judgment()
         model = _make_mock_referee_model(judgment)

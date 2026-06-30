@@ -11,13 +11,19 @@
    —— per-tab 冻结配置，由 UI 的 ModelStore 注入（支持多提供商并行）。
 """
 
+from __future__ import annotations
+
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from langchain_openai import ChatOpenAI
 
 from socratic_loop.core.settings import AppSettings
+
+if TYPE_CHECKING:
+    from socratic_loop.infra.model_store import ModelProfile
 
 #: 未配置 API Key 时使用的占位符值。
 _PLACEHOLDER_API_KEY = "sk-not-configured"
@@ -138,7 +144,7 @@ def get_chat_model(
 
 
 def get_chat_model_for_profile(
-    profile,  # ModelProfile —— 不引入类型以避免模块循环
+    profile: ModelProfile,
     temperature: float = 0.7,
 ) -> ChatOpenAI:
     """便捷方法：从 ModelProfile 创建 ChatOpenAI 实例。

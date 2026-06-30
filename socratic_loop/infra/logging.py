@@ -19,6 +19,7 @@
 import logging
 import time
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
@@ -30,7 +31,7 @@ _trace_id_stack: list[str] = []
 
 
 @contextmanager
-def trace_id_context(trace_id: str | None = None):
+def trace_id_context(trace_id: str | None = None) -> Generator[str]:
     """上下文管理器：为当前调用链注入 trace_id。
 
     用法：
@@ -54,6 +55,7 @@ def get_current_trace_id() -> str | None:
 # =============================================================================
 # 结构化日志格式
 # =============================================================================
+
 
 def _format_log(level: str, message: str, **fields: object) -> str:
     """构造单行 JSON 日志（便于 logfmt / jq 解析）。"""
@@ -122,9 +124,7 @@ class TraceLogger:
         if self._current_call is None:
             return
         self._current_call.end_ms = time.monotonic() * 1000
-        self._current_call.duration_ms = round(
-            self._current_call.end_ms - self._current_call.start_ms, 1
-        )
+        self._current_call.duration_ms = round(self._current_call.end_ms - self._current_call.start_ms, 1)
         self._current_call.success = success
         self._current_call.retry_count = retry_count
         self._current_call.error = error
@@ -142,9 +142,7 @@ class TraceLogger:
         if record.error:
             log_data["error"] = record.error
 
-        self._logger.info(
-            _format_log("INFO", "LLM call completed", **log_data)
-        )
+        self._logger.info(_format_log("INFO", "LLM call completed", **log_data))
         self._current_call = None
 
     # ------------------------------------------------------------------
@@ -154,9 +152,7 @@ class TraceLogger:
     def record_error(self, error: str) -> None:
         """记录一次请求级错误。"""
         self.errors.append(error)
-        self._logger.error(
-            _format_log("ERROR", "Request error", error=error)
-        )
+        self._logger.error(_format_log("ERROR", "Request error", error=error))
 
     # ------------------------------------------------------------------
     # 汇总

@@ -83,8 +83,7 @@ def check_connection(
     if timeout is None:
         timeout = settings.connection_timeout
     is_ollama = provider_id == "ollama" or (
-        isinstance(base_url, str)
-        and ("ollama" in base_url.lower() or "localhost:11434" in base_url.lower())
+        isinstance(base_url, str) and ("ollama" in base_url.lower() or "localhost:11434" in base_url.lower())
     )
 
     url = _build_request_url(base_url, is_ollama)
@@ -114,9 +113,7 @@ def check_connection(
                 message=f"无法解析域名，请检查 Base URL 是否正确：{base_url}",
                 status="network",
             )
-        if isinstance(reason, TimeoutError) or (
-            isinstance(reason, str) and "timed out" in reason.lower()
-        ):
+        if isinstance(reason, TimeoutError) or (isinstance(reason, str) and "timed out" in reason.lower()):
             return ConnectionResult(
                 ok=False,
                 message=f"连接超时（{timeout}s）。请检查网络或端点 URL 是否正确。",

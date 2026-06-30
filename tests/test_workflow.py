@@ -26,9 +26,8 @@ from tests.helpers import make_initial_state
 def _mock_opponent_compute(state: AgentState) -> dict:
     return {
         "_critique": f"第{state['round']}轮批判",
-        "messages": state["messages"] + [
-            {"role": "opponent", "content": f"批判-{state['round']}", "round": state["round"]}
-        ],
+        "messages": state["messages"]
+        + [{"role": "opponent", "content": f"批判-{state['round']}", "round": state["round"]}],
         "status": "awaiting_critique_response",
     }
 
@@ -36,9 +35,8 @@ def _mock_opponent_compute(state: AgentState) -> dict:
 def _mock_opponent_interact(state: AgentState) -> dict:
     return {
         "_user_response": f"用户回应-{state['round']}",
-        "messages": state["messages"] + [
-            {"role": "user", "content": f"回应-{state['round']}", "round": state["round"]}
-        ],
+        "messages": state["messages"]
+        + [{"role": "user", "content": f"回应-{state['round']}", "round": state["round"]}],
         "status": "presenter_computing",
     }
 
@@ -46,9 +44,8 @@ def _mock_opponent_interact(state: AgentState) -> dict:
 def _mock_presenter_compute(state: AgentState) -> dict:
     return {
         "_draft_thesis": f"第{state['round']}轮草稿论题",
-        "messages": state["messages"] + [
-            {"role": "presenter", "content": f"草稿-{state['round']}", "round": state["round"]}
-        ],
+        "messages": state["messages"]
+        + [{"role": "presenter", "content": f"草稿-{state['round']}", "round": state["round"]}],
         "status": "awaiting_thesis_confirmation",
     }
 
@@ -56,9 +53,8 @@ def _mock_presenter_compute(state: AgentState) -> dict:
 def _mock_presenter_interact(state: AgentState) -> dict:
     return {
         "_confirmed_thesis": f"确认论题-{state['round']}",
-        "messages": state["messages"] + [
-            {"role": "user", "content": f"确认-{state['round']}", "round": state["round"]}
-        ],
+        "messages": state["messages"]
+        + [{"role": "user", "content": f"确认-{state['round']}", "round": state["round"]}],
         "status": "referee_deliberating",
     }
 
@@ -78,9 +74,7 @@ def _mock_referee_continue(state: AgentState) -> dict:
     )
     return {
         "current_thesis": f"新论题-轮{state['round']}",
-        "messages": state["messages"] + [
-            {"role": "referee", "content": "继续", "round": state["round"]}
-        ],
+        "messages": state["messages"] + [{"role": "referee", "content": "继续", "round": state["round"]}],
         "history": state["history"] + [new_record],
         "status": "opponent_computing",
     }
@@ -100,9 +94,7 @@ def _mock_referee_done(state: AgentState) -> dict:
         referee_reasoning="论题已足够完善",
     )
     return {
-        "messages": state["messages"] + [
-            {"role": "referee", "content": "结束", "round": state["round"]}
-        ],
+        "messages": state["messages"] + [{"role": "referee", "content": "结束", "round": state["round"]}],
         "history": state["history"] + [new_record],
         "status": "done",
         "final_result": "终局总结报告。",
@@ -177,7 +169,11 @@ class TestNextRoundNode:
         result = _next_round_node(state)
 
         assert set(result.keys()) == {
-            "round", "_critique", "_user_response", "_draft_thesis", "_confirmed_thesis",
+            "round",
+            "_critique",
+            "_user_response",
+            "_draft_thesis",
+            "_confirmed_thesis",
             "_improvement_hint",
         }
 
@@ -267,7 +263,11 @@ class TestBuildGraph:
         rd_spy = MagicMock(side_effect=_mock_referee_done)
 
         graph = build_graph(
-            oc_spy, oi_spy, pc_spy, pi_spy, rd_spy,
+            oc_spy,
+            oi_spy,
+            pc_spy,
+            pi_spy,
+            rd_spy,
             checkpointer=MemorySaver(),
         )
 
@@ -334,9 +334,11 @@ class TestExportGraph:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "test_graph.png")
             # Mock 所有 agent 节点的 LLM 导入，使 export_graph 不触发真实 API
-            with patch("socratic_loop.agents.opponent.opponent_compute_node") as mock_oc, \
-                 patch("socratic_loop.agents.presenter.presenter_compute_node") as mock_pc, \
-                 patch("socratic_loop.agents.referee.referee_deliberate_node") as mock_rd:
+            with (
+                patch("socratic_loop.agents.opponent.opponent_compute_node") as mock_oc,
+                patch("socratic_loop.agents.presenter.presenter_compute_node") as mock_pc,
+                patch("socratic_loop.agents.referee.referee_deliberate_node") as mock_rd,
+            ):
                 mock_oc.return_value = {"_critique": "", "messages": [], "status": ""}
                 mock_pc.return_value = {"_draft_thesis": "", "messages": [], "status": ""}
                 mock_rd.return_value = {"messages": [], "history": [], "status": "done", "final_result": ""}
@@ -415,11 +417,21 @@ class TestBuildGraphEdgeCases:
 
     def test_build_without_checkpointer_compiles(self):
         """checkpointer=None 时图应编译成功（虽然 interrupt 会在运行时失败）。"""
-        def _oc(s): return {"_critique": "c", "messages": [], "status": "awaiting_critique_response"}
-        def _oi(s): return {"_user_response": "u", "messages": [], "status": "presenter_computing"}
-        def _pc(s): return {"_draft_thesis": "d", "messages": [], "status": "awaiting_thesis_confirmation"}
-        def _pi(s): return {"_confirmed_thesis": "cf", "messages": [], "status": "referee_deliberating"}
-        def _rd(s): return {"messages": [], "history": [], "status": "done", "final_result": "done"}
+
+        def _oc(s):
+            return {"_critique": "c", "messages": [], "status": "awaiting_critique_response"}
+
+        def _oi(s):
+            return {"_user_response": "u", "messages": [], "status": "presenter_computing"}
+
+        def _pc(s):
+            return {"_draft_thesis": "d", "messages": [], "status": "awaiting_thesis_confirmation"}
+
+        def _pi(s):
+            return {"_confirmed_thesis": "cf", "messages": [], "status": "referee_deliberating"}
+
+        def _rd(s):
+            return {"messages": [], "history": [], "status": "done", "final_result": "done"}
 
         graph = build_graph(_oc, _oi, _pc, _pi, _rd, checkpointer=None)
         assert graph is not None

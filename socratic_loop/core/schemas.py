@@ -37,9 +37,7 @@ class RefereeJudgment(_StrictModel):
     LLM 不应输出该字段。
     """
 
-    continue_debate: bool = Field(
-        description="是否继续下一轮辩论。True = 论题仍需打磨，False = 论题已足够完善。"
-    )
+    continue_debate: bool = Field(description="是否继续下一轮辩论。True = 论题仍需打磨，False = 论题已足够完善。")
 
     new_thesis: str = Field(
         min_length=1,

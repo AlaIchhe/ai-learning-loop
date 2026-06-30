@@ -33,8 +33,11 @@ LangGraph 编排层 —— 纯粹的流转调度。
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from socratic_loop.core.state import AgentState, validate_state_shape
 
@@ -100,13 +103,13 @@ def _route_after_referee(state: AgentState) -> str:
 
 
 def build_graph(
-    opponent_compute_node: Callable[[AgentState], dict],
-    opponent_interact_node: Callable[[AgentState], dict],
-    presenter_compute_node: Callable[[AgentState], dict],
-    presenter_interact_node: Callable[[AgentState], dict],
-    referee_deliberate_node: Callable[[AgentState], dict],
-    checkpointer=None,
-):
+    opponent_compute_node: Callable[[AgentState], dict[str, Any]],
+    opponent_interact_node: Callable[[AgentState], dict[str, Any]],
+    presenter_compute_node: Callable[[AgentState], dict[str, Any]],
+    presenter_interact_node: Callable[[AgentState], dict[str, Any]],
+    referee_deliberate_node: Callable[[AgentState], dict[str, Any]],
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> CompiledStateGraph[Any]:
     """组装 LangGraph 状态图。
 
     所有 LLM 节点以依赖注入方式传入，图本身只负责编排。
@@ -165,7 +168,7 @@ def build_graph(
 # =============================================================================
 
 
-def build_default_graph(checkpointer=None):
+def build_default_graph(checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph[Any]:
     """使用默认 agent 节点组装 LangGraph 状态图。
 
     这是 UI 层和快捷入口的推荐入口：调用者无需了解 agent 节点的

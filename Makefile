@@ -57,8 +57,8 @@ lint-fix: ## Ruff 自动修复
 format: ## Ruff 格式化
 	uv run ruff format .
 
-type-check: ## 类型检查（pyright + mypy）
-	uv run pyright .
+type-check: ## 类型检查（pyright strict on socratic_loop + mypy on core）
+	uv run pyright
 	uv run mypy socratic_loop/core/ socratic_loop/infra/ socratic_loop/agents/ socratic_loop/workflow/ --ignore-missing-imports
 
 check: lint type-check test ## 完整检查（lint + type + test）

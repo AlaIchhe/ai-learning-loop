@@ -155,25 +155,28 @@ def make_initial_state(
         model_json_mode: Per-tab 是否强制 Referee 使用 JSON-mode。
         max_rounds: 最大轮次安全阀（默认 10）。
     """
-    return cast(AgentState, {
-        "current_thesis": thesis,
-        "round": 1,
-        "agent_temperature": agent_temperature,
-        "status": "idle",
-        "messages": [],
-        "history": [],
-        "final_result": "",
-        "_critique": "",
-        "_user_response": "",
-        "_draft_thesis": "",
-        "_confirmed_thesis": "",
-        "_improvement_hint": "",
-        "_model_name": model_name,
-        "_model_base_url": model_base_url,
-        "_model_api_key": model_api_key,
-        "_model_json_mode": model_json_mode,
-        "max_rounds": max_rounds,
-    })
+    return cast(
+        AgentState,
+        {
+            "current_thesis": thesis,
+            "round": 1,
+            "agent_temperature": agent_temperature,
+            "status": "idle",
+            "messages": [],
+            "history": [],
+            "final_result": "",
+            "_critique": "",
+            "_user_response": "",
+            "_draft_thesis": "",
+            "_confirmed_thesis": "",
+            "_improvement_hint": "",
+            "_model_name": model_name,
+            "_model_base_url": model_base_url,
+            "_model_api_key": model_api_key,
+            "_model_json_mode": model_json_mode,
+            "max_rounds": max_rounds,
+        },
+    )
 
 
 #: LangGraph 节点函数的返回类型 —— 部分状态更新字典。

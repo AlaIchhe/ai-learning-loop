@@ -58,9 +58,7 @@ def opponent_prompt(
         current_thesis,
     ]
     if improvement_hint:
-        parts.append(
-            f"\n\n【上一轮裁判建议的攻击方向】\n{improvement_hint}"
-        )
+        parts.append(f"\n\n【上一轮裁判建议的攻击方向】\n{improvement_hint}")
     return "\n".join(parts)
 
 
@@ -198,10 +196,7 @@ def referee_prompt(
         f"【用户确认版】\n{confirmed_thesis}",
     ]
     if history_summary:
-        parts.append(
-            f"【前轮摘要】\n{history_summary}\n"
-            f"（注：如果本轮与前轮高度重复且无实质认知进展，应考虑终止。）"
-        )
+        parts.append(f"【前轮摘要】\n{history_summary}\n（注：如果本轮与前轮高度重复且无实质认知进展，应考虑终止。）")
     parts.append(
         "请将本轮讨论揭示的新认知层次有机拼合到原始论题中（保留核心主张，融入新边界），"
         "输出 JSON 判定。记住：你只输出 JSON，没有对用户可见的消息。"

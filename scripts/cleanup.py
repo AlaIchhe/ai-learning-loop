@@ -70,6 +70,7 @@ _IGNORE_MARKERS: set[str] = {".gitignore", "CACHEDIR.TAG"}
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _size_fmt(total_bytes: int) -> str:
     """Human-readable byte count."""
     for unit in ("B", "KB", "MB", "GB"):
@@ -100,6 +101,7 @@ def _count_items(path: Path) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
 
 def _find_pycache_dirs(root: Path) -> list[Path]:
     """Recursively find all __pycache__ directories, excluding venv."""
@@ -210,6 +212,7 @@ def cleanup(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Clean up test / dev / build garbage from the project.",
@@ -220,7 +223,8 @@ def main() -> None:
         help="Show what would be removed without actually removing anything.",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Print every path that is removed.",
     )

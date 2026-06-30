@@ -18,11 +18,14 @@ def mock_opponent_compute(state: AgentState) -> dict:
     """Mock 批判者计算节点：返回固定批判文本。"""
     return {
         "_critique": f"[Critique R{state['round']}] 论题存在模糊之处",
-        "messages": state["messages"] + [{
-            "role": "opponent",
-            "content": f"[Critique R{state['round']}] 论题存在模糊之处",
-            "round": state["round"],
-        }],
+        "messages": state["messages"]
+        + [
+            {
+                "role": "opponent",
+                "content": f"[Critique R{state['round']}] 论题存在模糊之处",
+                "round": state["round"],
+            }
+        ],
         "status": "awaiting_critique_response",
     }
 
@@ -33,11 +36,14 @@ def mock_opponent_interact(state: AgentState) -> dict:
     user_response = interrupt(critique)
     return {
         "_user_response": str(user_response),
-        "messages": state["messages"] + [{
-            "role": "user",
-            "content": str(user_response),
-            "round": state["round"],
-        }],
+        "messages": state["messages"]
+        + [
+            {
+                "role": "user",
+                "content": str(user_response),
+                "round": state["round"],
+            }
+        ],
         "status": "presenter_computing",
     }
 
@@ -51,11 +57,14 @@ def mock_presenter_compute(state: AgentState) -> dict:
     """Mock 精确化者计算节点：返回固定草稿文本。"""
     return {
         "_draft_thesis": f"[Draft R{state['round']}] 精确化后的论题",
-        "messages": state["messages"] + [{
-            "role": "presenter",
-            "content": f"[Draft R{state['round']}] 精确化后的论题",
-            "round": state["round"],
-        }],
+        "messages": state["messages"]
+        + [
+            {
+                "role": "presenter",
+                "content": f"[Draft R{state['round']}] 精确化后的论题",
+                "round": state["round"],
+            }
+        ],
         "status": "awaiting_thesis_confirmation",
     }
 
@@ -66,11 +75,14 @@ def mock_presenter_interact(state: AgentState) -> dict:
     confirmed = interrupt(draft)
     return {
         "_confirmed_thesis": str(confirmed),
-        "messages": state["messages"] + [{
-            "role": "user",
-            "content": str(confirmed),
-            "round": state["round"],
-        }],
+        "messages": state["messages"]
+        + [
+            {
+                "role": "user",
+                "content": str(confirmed),
+                "round": state["round"],
+            }
+        ],
         "status": "referee_deliberating",
     }
 
@@ -108,11 +120,14 @@ def make_mock_referee(
             referee_reasoning=reasoning,
         )
         result: dict = {
-            "messages": state["messages"] + [{
-                "role": "referee",
-                "content": f"[Judgment R{state['round']}] {reasoning}",
-                "round": state["round"],
-            }],
+            "messages": state["messages"]
+            + [
+                {
+                    "role": "referee",
+                    "content": f"[Judgment R{state['round']}] {reasoning}",
+                    "round": state["round"],
+                }
+            ],
             "history": state["history"] + [record],
         }
         if continue_debate:

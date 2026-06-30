@@ -11,6 +11,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable
+from typing import Any, Protocol, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -40,10 +41,7 @@ def _is_retryable(error: Exception) -> bool:
         return True
     # langchain / openai 的 RateLimitError, APITimeoutError 等
     error_name = type(error).__name__
-    return any(
-        keyword in error_name.lower()
-        for keyword in ("timeout", "ratelimit", "connection", "apiconnection")
-    )
+    return any(keyword in error_name.lower() for keyword in ("timeout", "ratelimit", "connection", "apiconnection"))
 
 
 # =============================================================================
@@ -84,9 +82,19 @@ def make_message(role: str, content: str, round_num: int) -> dict[str, object]:
 # =============================================================================
 
 
+class _Invocable(Protocol):
+    """任何具有 .invoke(messages) -> BaseMessage 方法的对象。
+
+    兼容 BaseChatModel 和 with_structured_output() 返回的 Runnable。
+    使用 Protocol 而非 BaseChatModel 以接受结构化输出包装器。
+    """
+
+    def invoke(self, input: Any, **kwargs: Any) -> Any: ...
+
+
 def invoke_with_retry(
-    invocable,  # BaseChatModel | structured model
-    messages: list,
+    invocable: _Invocable,
+    messages: list[BaseMessage],
     *,
     label: str = "LLM",
     on_retry: Callable[[int, int, float, Exception], None] | None = None,
@@ -124,7 +132,7 @@ def invoke_with_retry(
 
     for attempt in range(1, max_retries + 1):
         try:
-            result = invocable.invoke(messages)
+            result = cast("BaseMessage", invocable.invoke(messages))
             if trace:
                 trace.llm_call_end(success=True, retry_count=retry_count)
             return result
@@ -142,7 +150,11 @@ def invoke_with_retry(
             wait = backoff_base * (2 ** (attempt - 1))
             logger.warning(
                 "%s 调用失败（第 %d/%d 次），%s 秒后重试: %s",
-                label, attempt, max_retries, wait, exc,
+                label,
+                attempt,
+                max_retries,
+                wait,
+                exc,
             )
             if on_retry:
                 with contextlib.suppress(Exception):

@@ -86,19 +86,13 @@ class TestDetectPresetByBaseUrl:
         assert detect_preset_by_base_url("https://api.siliconflow.cn/v1") == "siliconflow"
 
     def test_tongyi_by_dashscope(self):
-        assert detect_preset_by_base_url(
-            "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        ) == "tongyi"
+        assert detect_preset_by_base_url("https://dashscope.aliyuncs.com/compatible-mode/v1") == "tongyi"
 
     def test_tongyi_by_aliyuncs(self):
-        assert detect_preset_by_base_url(
-            "https://dashscope.aliyuncs.com/api/v1"
-        ) == "tongyi"
+        assert detect_preset_by_base_url("https://dashscope.aliyuncs.com/api/v1") == "tongyi"
 
     def test_zhipu(self):
-        assert detect_preset_by_base_url(
-            "https://open.bigmodel.cn/api/paas/v4"
-        ) == "zhipu"
+        assert detect_preset_by_base_url("https://open.bigmodel.cn/api/paas/v4") == "zhipu"
 
     def test_moonshot(self):
         assert detect_preset_by_base_url("https://api.moonshot.cn/v1") == "moonshot"

@@ -218,7 +218,7 @@ class TestSerializationRoundTrip:
                     "custom_models": [],
                     "status": "ok",
                 }
-            }
+            },
         }
         s = ModelStore.from_dict(d)
         entry = s.providers["x-default"]

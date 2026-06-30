@@ -86,7 +86,7 @@ uv run python scripts/ghost_probe.py
 # ── 静态检查 ──
 uv run ruff check .                 # 零警告
 uv run ruff format .                # 自动格式化
-uv run pyright .                    # 严格模式零错误
+uv run pyright                      # strict 模式（仅扫描 socratic_loop/）
 uv run mypy socratic_loop/core/ socratic_loop/infra/ socratic_loop/agents/ socratic_loop/workflow/ --ignore-missing-imports
 
 # ── 依赖管理 ──

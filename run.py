@@ -25,6 +25,7 @@ def main() -> None:
 
     if "--export-graph" in sys.argv:
         from socratic_loop.workflow.graph import export_graph
+
         export_graph()
         return
 

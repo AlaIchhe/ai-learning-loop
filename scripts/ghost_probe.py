@@ -33,9 +33,9 @@ from socratic_loop.infra.model import has_configured_api_key  # noqa: E402
 
 def _check(probe_name: str) -> None:
     """打印探针开始标记。"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  🩺 {probe_name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 def _pass(detail: str = "") -> None:
@@ -128,10 +128,14 @@ def probe_structured_output() -> bool:
         structured = model.with_structured_output(RefereeJudgment)
 
         start = time.time()
-        raw = structured.invoke([
-            SystemMessage(content="你是裁判。只输出 JSON。"),
-            HumanMessage(content="请判定：当前论题=AI应受监管，草稿=AI应在高风险领域受监管，确认版=AI应在高风险领域受监管。"),
-        ])
+        raw = structured.invoke(
+            [
+                SystemMessage(content="你是裁判。只输出 JSON。"),
+                HumanMessage(
+                    content="请判定：当前论题=AI应受监管，草稿=AI应在高风险领域受监管，确认版=AI应在高风险领域受监管。"
+                ),
+            ]
+        )
         elapsed = time.time() - start
 
         judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
@@ -176,10 +180,12 @@ def probe_opponent_prompt() -> bool:
         thesis = "人工智能的发展应该受到严格监管，以确保其安全性和可控性。"
 
         start = time.time()
-        response = model.invoke([
-            SystemMessage(content=OPPONENT_SYSTEM_PROMPT),
-            HumanMessage(content=opponent_prompt(thesis)),
-        ])
+        response = model.invoke(
+            [
+                SystemMessage(content=OPPONENT_SYSTEM_PROMPT),
+                HumanMessage(content=opponent_prompt(thesis)),
+            ]
+        )
         elapsed = time.time() - start
 
         content = response.content if isinstance(response.content, str) else str(response.content)
@@ -226,14 +232,18 @@ def probe_presenter_prompt() -> bool:
         model = get_chat_model(temperature=0.7)
 
         start = time.time()
-        response = model.invoke([
-            SystemMessage(content=PRESENTER_SYSTEM_PROMPT),
-            HumanMessage(content=presenter_prompt(
-                current_thesis="AI应受监管。",
-                critique="你说的'监管'具体指什么？谁来判断什么是高风险？",
-                user_response="我觉得监管应该分级别，医疗和司法领域要严格，普通的推荐系统可以松一些。",
-            )),
-        ])
+        response = model.invoke(
+            [
+                SystemMessage(content=PRESENTER_SYSTEM_PROMPT),
+                HumanMessage(
+                    content=presenter_prompt(
+                        current_thesis="AI应受监管。",
+                        critique="你说的'监管'具体指什么？谁来判断什么是高风险？",
+                        user_response="我觉得监管应该分级别，医疗和司法领域要严格，普通的推荐系统可以松一些。",
+                    )
+                ),
+            ]
+        )
         elapsed = time.time() - start
 
         content = response.content if isinstance(response.content, str) else str(response.content)
@@ -268,15 +278,19 @@ def probe_referee_prompt() -> bool:
         structured = model.with_structured_output(RefereeJudgment)
 
         start = time.time()
-        raw = structured.invoke([
-            SystemMessage(content=REFEREE_SYSTEM_PROMPT),
-            HumanMessage(content=referee_prompt(
-                current_thesis="AI应受监管。",
-                draft_thesis="AI应在高风险领域（如医疗诊断、司法判决）受到严格监管。",
-                confirmed_thesis="AI应在高风险领域受到严格监管，低风险领域可适当放宽。",
-                round_num=1,
-            )),
-        ])
+        raw = structured.invoke(
+            [
+                SystemMessage(content=REFEREE_SYSTEM_PROMPT),
+                HumanMessage(
+                    content=referee_prompt(
+                        current_thesis="AI应受监管。",
+                        draft_thesis="AI应在高风险领域（如医疗诊断、司法判决）受到严格监管。",
+                        confirmed_thesis="AI应在高风险领域受到严格监管，低风险领域可适当放宽。",
+                        round_num=1,
+                    )
+                ),
+            ]
+        )
         elapsed = time.time() - start
 
         judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
@@ -321,8 +335,7 @@ def probe_full_round() -> bool:
 
         thesis = "人工智能的发展应该受到严格监管。"
         user_response_simulated = (
-            "我同意监管应该分级。在高风险领域如医疗和司法，AI决策需要人工复核；"
-            "但在低风险领域可以更灵活。"
+            "我同意监管应该分级。在高风险领域如医疗和司法，AI决策需要人工复核；但在低风险领域可以更灵活。"
         )
 
         total_start = time.time()
@@ -330,34 +343,40 @@ def probe_full_round() -> bool:
         # Step 1: Opponent
         t0 = time.time()
         opp_model = get_chat_model(temperature=0.7)
-        opp_resp = opp_model.invoke([
-            SystemMessage(content=OPPONENT_SYSTEM_PROMPT),
-            HumanMessage(content=opponent_prompt(thesis)),
-        ])
+        opp_resp = opp_model.invoke(
+            [
+                SystemMessage(content=OPPONENT_SYSTEM_PROMPT),
+                HumanMessage(content=opponent_prompt(thesis)),
+            ]
+        )
         critique = opp_resp.content if isinstance(opp_resp.content, str) else str(opp_resp.content)
         t1 = time.time()
-        print(f"  [Opponent]  {t1-t0:.2f}s | {len(critique)}字 | {critique[:80]}")
+        print(f"  [Opponent]  {t1 - t0:.2f}s | {len(critique)}字 | {critique[:80]}")
 
         # Step 2: Presenter
         pres_model = get_chat_model(temperature=0.7)
-        pres_resp = pres_model.invoke([
-            SystemMessage(content=PRESENTER_SYSTEM_PROMPT),
-            HumanMessage(content=presenter_prompt(thesis, critique, user_response_simulated)),
-        ])
+        pres_resp = pres_model.invoke(
+            [
+                SystemMessage(content=PRESENTER_SYSTEM_PROMPT),
+                HumanMessage(content=presenter_prompt(thesis, critique, user_response_simulated)),
+            ]
+        )
         draft = pres_resp.content if isinstance(pres_resp.content, str) else str(pres_resp.content)
         t2 = time.time()
-        print(f"  [Presenter] {t2-t1:.2f}s | {len(draft)}字 | {draft[:80]}")
+        print(f"  [Presenter] {t2 - t1:.2f}s | {len(draft)}字 | {draft[:80]}")
 
         # Step 3: Referee
         ref_model = get_chat_model(temperature=0.0)
         structured = ref_model.with_structured_output(RefereeJudgment)
-        raw = structured.invoke([
-            SystemMessage(content=REFEREE_SYSTEM_PROMPT),
-            HumanMessage(content=referee_prompt(thesis, draft, draft, 1)),
-        ])
+        raw = structured.invoke(
+            [
+                SystemMessage(content=REFEREE_SYSTEM_PROMPT),
+                HumanMessage(content=referee_prompt(thesis, draft, draft, 1)),
+            ]
+        )
         judgment = raw if isinstance(raw, RefereeJudgment) else RefereeJudgment(**raw)
         t3 = time.time()
-        print(f"  [Referee]   {t3-t2:.2f}s | continue={judgment.continue_debate} | {judgment.new_thesis[:80]}")
+        print(f"  [Referee]   {t3 - t2:.2f}s | continue={judgment.continue_debate} | {judgment.new_thesis[:80]}")
 
         total_elapsed = time.time() - total_start
         _pass(f"总耗时 {total_elapsed:.2f}s")
@@ -385,8 +404,10 @@ def probe_environment() -> bool:
     ls_key = os.getenv("LANGCHAIN_API_KEY", "")
     ls_project = os.getenv("LANGCHAIN_PROJECT", "")
     ls_tracing = os.getenv("LANGCHAIN_TRACING_V2", "")
-    print(f"  LangSmith:  {'✅ 已启用' if ls_tracing == 'true' and ls_key else '⏭️  未启用'} "
-          f"(project={ls_project or 'N/A'})")
+    print(
+        f"  LangSmith:  {'✅ 已启用' if ls_tracing == 'true' and ls_key else '⏭️  未启用'} "
+        f"(project={ls_project or 'N/A'})"
+    )
 
     # Python 版本
     print(f"  Python:     {sys.version.split()[0]}")
@@ -428,7 +449,8 @@ def main():
         """,
     )
     parser.add_argument(
-        "--quick", action="store_true",
+        "--quick",
+        action="store_true",
         help="仅运行快速探针（环境诊断 + API 连通性，几乎零 token 消耗）",
     )
     args = parser.parse_args()
@@ -459,9 +481,9 @@ def main():
                 results[name] = True  # 跳过不算失败
 
     # 总结
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  探针总结")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     passed = sum(1 for v in results.values() if v)
     failed = sum(1 for v in results.values() if not v)
     for name, ok in results.items():

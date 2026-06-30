@@ -108,9 +108,7 @@ class TestConnectionTestErrors:
     """各种错误场景分类。"""
 
     def test_http_401_is_auth_error(self):
-        error = urllib.error.HTTPError(
-            "https://api.example.com/v1/models", 401, "Unauthorized", {}, io.BytesIO(b"{}")
-        )
+        error = urllib.error.HTTPError("https://api.example.com/v1/models", 401, "Unauthorized", {}, io.BytesIO(b"{}"))
         with patch("socratic_loop.infra.connection_test.urllib.request.urlopen", side_effect=error):
             result = check_connection("https://api.example.com/v1", "sk-wrong")
         assert result.ok is False
@@ -118,17 +116,13 @@ class TestConnectionTestErrors:
         assert "API Key" in result.message or "401" in result.message
 
     def test_http_403_is_auth_error(self):
-        error = urllib.error.HTTPError(
-            "https://api.example.com/v1/models", 403, "Forbidden", {}, io.BytesIO(b"{}")
-        )
+        error = urllib.error.HTTPError("https://api.example.com/v1/models", 403, "Forbidden", {}, io.BytesIO(b"{}"))
         with patch("socratic_loop.infra.connection_test.urllib.request.urlopen", side_effect=error):
             result = check_connection("https://api.example.com/v1", "sk-x")
         assert result.status == "auth"
 
     def test_http_404_is_network_error(self):
-        error = urllib.error.HTTPError(
-            "https://example.com/wrong", 404, "Not Found", {}, io.BytesIO(b"{}")
-        )
+        error = urllib.error.HTTPError("https://example.com/wrong", 404, "Not Found", {}, io.BytesIO(b"{}"))
         with patch("socratic_loop.infra.connection_test.urllib.request.urlopen", side_effect=error):
             result = check_connection("https://example.com/wrong", "sk-x")
         assert result.ok is False
@@ -136,9 +130,7 @@ class TestConnectionTestErrors:
         assert "404" in result.message or "端点" in result.message
 
     def test_http_500_is_server_error(self):
-        error = urllib.error.HTTPError(
-            "https://api.example.com/v1/models", 500, "Internal", {}, io.BytesIO(b"{}")
-        )
+        error = urllib.error.HTTPError("https://api.example.com/v1/models", 500, "Internal", {}, io.BytesIO(b"{}"))
         with patch("socratic_loop.infra.connection_test.urllib.request.urlopen", side_effect=error):
             result = check_connection("https://api.example.com/v1", "sk-x")
         assert result.ok is False
@@ -146,6 +138,7 @@ class TestConnectionTestErrors:
 
     def test_connection_refused_is_network(self):
         import urllib.request
+
         # URLError with ConnectionRefusedError reason
         err = urllib.error.URLError(ConnectionRefusedError("refused"))
         with patch("socratic_loop.infra.connection_test.urllib.request.urlopen", side_effect=err):
@@ -155,6 +148,7 @@ class TestConnectionTestErrors:
 
     def test_dns_failure_is_network(self):
         import urllib.request
+
         err = urllib.error.URLError(OSError("Name or service not known"))
         with patch("socratic_loop.infra.connection_test.urllib.request.urlopen", side_effect=err):
             result = check_connection("https://nonexistent.invalid/v1", "sk-x")
