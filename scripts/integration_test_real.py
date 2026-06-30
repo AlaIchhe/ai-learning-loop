@@ -28,7 +28,7 @@ from uuid import uuid4
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
-from socratic_loop.core.env import setup_environment  # noqa: E402
+from socratic_loop.infra.env import setup_environment  # noqa: E402
 
 setup_environment(_project_root)
 
@@ -37,7 +37,7 @@ from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
 from socratic_loop.agents.referee import referee_deliberate_node  # noqa: E402
-from socratic_loop.core.model import get_chat_model, has_configured_api_key  # noqa: E402
+from socratic_loop.infra.model import get_chat_model, has_configured_api_key  # noqa: E402
 from socratic_loop.core.prompts import (  # noqa: E402
     OPPONENT_SYSTEM_PROMPT,
     PRESENTER_SYSTEM_PROMPT,

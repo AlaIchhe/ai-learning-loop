@@ -28,7 +28,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from socratic_loop.agents._base import extract_content, invoke_with_retry, make_message
-from socratic_loop.core.model import get_chat_model
 from socratic_loop.core.prompts import (
     FINAL_SUMMARY_PROMPT,
     REFEREE_SYSTEM_PROMPT,
@@ -37,6 +36,7 @@ from socratic_loop.core.prompts import (
 )
 from socratic_loop.core.schemas import RefereeJudgment, RoundRecord
 from socratic_loop.core.state import AgentState
+from socratic_loop.infra.model import get_chat_model
 
 # =============================================================================
 # 公开 API

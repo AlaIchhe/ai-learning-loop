@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from socratic_loop.core.env import setup_environment
+from socratic_loop.infra.env import setup_environment
 
 
 def main() -> None:

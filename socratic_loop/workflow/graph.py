@@ -161,6 +161,41 @@ def build_graph(
 
 
 # =============================================================================
+# 默认图构建器 —— 供 UI 层使用，避免直接依赖 agents/
+# =============================================================================
+
+
+def build_default_graph(checkpointer=None):
+    """使用默认 agent 节点组装 LangGraph 状态图。
+
+    这是 UI 层和快捷入口的推荐入口：调用者无需了解 agent 节点的
+    具体实现，只需传入 checkpointer 即可获得可编译的图。
+
+    与 build_graph() 的区别：build_graph() 接受节点函数作为参数
+    （适合测试注入 mock），build_default_graph() 使用真实的 LLM 节点。
+
+    Args:
+        checkpointer: LangGraph checkpointer 实例（必须传入才能支持
+                     interrupt() 暂停/恢复和 get_state()）。
+
+    Returns:
+        编译后的 CompiledStateGraph。
+    """
+    from socratic_loop.agents.opponent import opponent_compute_node, opponent_interact_node
+    from socratic_loop.agents.presenter import presenter_compute_node, presenter_interact_node
+    from socratic_loop.agents.referee import referee_deliberate_node
+
+    return build_graph(
+        opponent_compute_node=opponent_compute_node,
+        opponent_interact_node=opponent_interact_node,
+        presenter_compute_node=presenter_compute_node,
+        presenter_interact_node=presenter_interact_node,
+        referee_deliberate_node=referee_deliberate_node,
+        checkpointer=checkpointer,
+    )
+
+
+# =============================================================================
 # 图结构导出（可通过 python -m workflow.graph 或 debate-graph 入口调用）
 # =============================================================================
 

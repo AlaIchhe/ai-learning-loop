@@ -1,4 +1,4 @@
-"""core/model.py 单元测试 —— 覆盖 get_chat_model() 所有分支。
+"""infra/model.py 单元测试 —— 覆盖 get_chat_model() 所有分支。
 
 通过 Mock ChatOpenAI 和 os.environ 验证工厂函数的行为，
 不依赖真实 API Key。
@@ -20,10 +20,10 @@ def _call_with_env(env_vars: dict[str, str], temperature: float = 0.7) -> dict:
 
     通过拦截 ChatOpenAI 构造函数的调用，验证工厂函数的参数传递行为。
     """
-    with patch.dict(os.environ, env_vars, clear=True), patch("socratic_loop.core.model.ChatOpenAI") as mock_cls:
+    with patch.dict(os.environ, env_vars, clear=True), patch("socratic_loop.infra.model.ChatOpenAI") as mock_cls:
         mock_instance = MagicMock()
         mock_cls.return_value = mock_instance
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
 
         get_chat_model(temperature=temperature)
         # 返回第一次调用 ChatOpenAI 时的关键字参数
@@ -39,7 +39,7 @@ class TestLoadModelConfig:
     """load_model_config() 只解析配置，不构造模型。"""
 
     def test_loads_defaults_from_mapping(self):
-        from socratic_loop.core.model import load_model_config
+        from socratic_loop.infra.model import load_model_config
 
         config = load_model_config({"OPENAI_API_KEY": "sk-test"})
 
@@ -48,7 +48,7 @@ class TestLoadModelConfig:
         assert config.api_key == "sk-test"
 
     def test_llm_api_key_has_priority(self):
-        from socratic_loop.core.model import load_model_config
+        from socratic_loop.infra.model import load_model_config
 
         config = load_model_config({
             "LLM_API_KEY": "sk-primary",
@@ -58,7 +58,7 @@ class TestLoadModelConfig:
         assert config.api_key == "sk-primary"
 
     def test_empty_strings_become_absent_values(self):
-        from socratic_loop.core.model import load_model_config
+        from socratic_loop.infra.model import load_model_config
 
         config = load_model_config({
             "LLM_MODEL": "deepseek-chat",
@@ -71,19 +71,19 @@ class TestLoadModelConfig:
         assert config.api_key is None
 
     def test_placeholder_key_is_treated_as_missing(self):
-        from socratic_loop.core.model import load_model_config
+        from socratic_loop.infra.model import load_model_config
 
         config = load_model_config({"LLM_API_KEY": "sk-not-configured"})
 
         assert config.api_key is None
 
     def test_has_configured_api_key_rejects_placeholder(self):
-        from socratic_loop.core.model import has_configured_api_key
+        from socratic_loop.infra.model import has_configured_api_key
 
         assert has_configured_api_key({"LLM_API_KEY": "sk-not-configured"}) is False
 
     def test_has_configured_api_key_accepts_real_key(self):
-        from socratic_loop.core.model import has_configured_api_key
+        from socratic_loop.infra.model import has_configured_api_key
 
         assert has_configured_api_key({"LLM_API_KEY": "sk-real"}) is True
 
@@ -167,20 +167,20 @@ class TestGetChatModelMissingKey:
         """两个 API Key 都缺失时应发出 RuntimeWarning。"""
         with (
             patch.dict(os.environ, {}, clear=True),
-            patch("socratic_loop.core.model.ChatOpenAI"),
+            patch("socratic_loop.infra.model.ChatOpenAI"),
             pytest.warns(RuntimeWarning, match="未检测到"),
         ):
-            from socratic_loop.core.model import get_chat_model
+            from socratic_loop.infra.model import get_chat_model
             get_chat_model()
 
     def test_returns_instance_even_without_key(self):
         """即使没有 API Key，也应返回 ChatOpenAI 实例（惰性失败）。"""
-        with patch.dict(os.environ, {}, clear=True), patch("socratic_loop.core.model.ChatOpenAI") as mock_cls:
+        with patch.dict(os.environ, {}, clear=True), patch("socratic_loop.infra.model.ChatOpenAI") as mock_cls:
             mock_instance = MagicMock()
             mock_cls.return_value = mock_instance
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                from socratic_loop.core.model import get_chat_model
+                from socratic_loop.infra.model import get_chat_model
                 result = get_chat_model()
             assert result is mock_instance
 

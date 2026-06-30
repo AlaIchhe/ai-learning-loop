@@ -15,9 +15,9 @@ from collections.abc import Callable
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from socratic_loop.core.logging import TraceLogger
-from socratic_loop.core.model import get_chat_model
 from socratic_loop.core.state import AgentState
+from socratic_loop.infra.logging import TraceLogger
+from socratic_loop.infra.model import get_chat_model
 
 logger = logging.getLogger(__name__)
 

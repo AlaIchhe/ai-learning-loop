@@ -1,8 +1,8 @@
-"""socratic_loop.core.providers 预设提供商注册表单元测试。"""
+"""socratic_loop.infra.providers 预设提供商注册表单元测试。"""
 
 import pytest
 
-from socratic_loop.core.providers import (
+from socratic_loop.infra.providers import (
     PRESET_PROVIDERS,
     detect_preset_by_base_url,
     get_preset,

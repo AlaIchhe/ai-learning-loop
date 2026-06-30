@@ -20,11 +20,11 @@ from pathlib import Path
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
-from socratic_loop.core.env import setup_environment  # noqa: E402
+from socratic_loop.infra.env import setup_environment  # noqa: E402
 
 setup_environment(_project_root)
 
-from socratic_loop.core.model import has_configured_api_key  # noqa: E402
+from socratic_loop.infra.model import has_configured_api_key  # noqa: E402
 
 # =============================================================================
 # 辅助函数
@@ -90,7 +90,7 @@ def probe_api_connectivity() -> bool:
     try:
         from langchain_core.messages import HumanMessage
 
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
 
         model = get_chat_model(temperature=0.0)
         start = time.time()
@@ -121,7 +121,7 @@ def probe_structured_output() -> bool:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
         from socratic_loop.core.schemas import RefereeJudgment
 
         model = get_chat_model(temperature=0.0)
@@ -169,7 +169,7 @@ def probe_opponent_prompt() -> bool:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
         from socratic_loop.core.prompts import OPPONENT_SYSTEM_PROMPT, opponent_prompt
 
         model = get_chat_model(temperature=0.7)
@@ -220,7 +220,7 @@ def probe_presenter_prompt() -> bool:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
         from socratic_loop.core.prompts import PRESENTER_SYSTEM_PROMPT, presenter_prompt
 
         model = get_chat_model(temperature=0.7)
@@ -260,7 +260,7 @@ def probe_referee_prompt() -> bool:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
         from socratic_loop.core.prompts import REFEREE_SYSTEM_PROMPT, referee_prompt
         from socratic_loop.core.schemas import RefereeJudgment
 
@@ -308,7 +308,7 @@ def probe_full_round() -> bool:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from socratic_loop.core.model import get_chat_model
+        from socratic_loop.infra.model import get_chat_model
         from socratic_loop.core.prompts import (
             OPPONENT_SYSTEM_PROMPT,
             PRESENTER_SYSTEM_PROMPT,

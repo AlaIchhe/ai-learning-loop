@@ -1,5 +1,7 @@
-"""Model settings page — provider CRUD + connection test."""
+"""Settings page — provider CRUD + connection test."""
+
 import reflex as rx
+
 from .state import AppState
 from .styles import colors
 
@@ -88,7 +90,7 @@ def add_provider_form() -> rx.Component:
     )
 
 
-def model_settings_page() -> rx.Component:
+def settings_page() -> rx.Component:
     """模型设置主页面。"""
     from .chat import sidebar
     return rx.hstack(

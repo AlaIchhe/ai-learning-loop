@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from socratic_loop.core.model import ModelConfig
-from socratic_loop.core.model_store import ModelStore
-from socratic_loop.core.providers import get_preset
+from socratic_loop.infra.model import ModelConfig
+from socratic_loop.infra.model_store import ModelStore
+from socratic_loop.infra.providers import get_preset
 
 
 class TestEmptyStore:

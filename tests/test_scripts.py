@@ -24,6 +24,6 @@ class TestGhostProbeContracts:
 
         with (
             patch.object(ghost_probe, "_has_api_key", return_value=True),
-            patch("socratic_loop.core.model.get_chat_model", return_value=mock_model),
+            patch("socratic_loop.infra.model.get_chat_model", return_value=mock_model),
         ):
             assert ghost_probe.probe_structured_output() is True

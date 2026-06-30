@@ -7,7 +7,7 @@
 3. 结构化日志辅助（JSON 行格式，便于日志聚合）
 
 用法：
-    from core.logging import TraceLogger, trace_id_context
+    from socratic_loop.infra.logging import TraceLogger, trace_id_context
 
     with trace_id_context() as trace_id:
         tlog = TraceLogger(trace_id)

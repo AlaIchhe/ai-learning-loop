@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from socratic_loop.core.model import ModelConfig
-from socratic_loop.core.providers import ProviderPreset, detect_preset_by_base_url, get_preset
+from socratic_loop.infra.model import ModelConfig
+from socratic_loop.infra.providers import ProviderPreset, detect_preset_by_base_url, get_preset
 
 #: 存储文件格式版本号 —— 未来不兼容变更时递增，做迁移
 STORE_VERSION = 1
@@ -151,7 +151,7 @@ class ModelStore:
                     continue
                 preset_id = raw.get("preset_id", "custom")
                 # 防御：若 preset_id 未知（老版本/拼写错误），回退到 custom
-                from socratic_loop.core.providers import PRESET_PROVIDERS  # 延迟导入避免循环
+                from socratic_loop.infra.providers import PRESET_PROVIDERS  # 延迟导入避免循环
                 if preset_id not in PRESET_PROVIDERS:
                     preset_id = "custom"
                 providers[str(entry_id)] = ProviderEntry(
