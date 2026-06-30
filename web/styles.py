@@ -1,5 +1,4 @@
 """Global styles for Reflex UI, matching original Streamlit design."""
-import reflex as rx
 
 # 颜色系统 - 与原Streamlit版本保持一致
 colors = {

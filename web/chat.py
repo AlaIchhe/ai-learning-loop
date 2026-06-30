@@ -1,5 +1,6 @@
 """Chat page component — multi-tab edition."""
 import reflex as rx
+
 from .state import AppState
 from .styles import colors
 
@@ -21,7 +22,12 @@ def message_bubble(message: dict) -> rx.Component:
 
     return rx.box(
         rx.hstack(
-            rx.box(rx.text(avatar), class_name=rx.cond(is_user, "message-avatar user-avatar", "message-avatar ai-avatar")),
+            rx.box(
+                rx.text(avatar),
+                class_name=rx.cond(
+                    is_user, "message-avatar user-avatar", "message-avatar ai-avatar"
+                ),
+            ),
             rx.box(
                 rx.cond(is_user, rx.fragment(), rx.text(name, class_name="message-name")),
                 rx.box(
@@ -48,7 +54,11 @@ def interrupt_prompt(value: str) -> rx.Component:
             rx.box(rx.text("💬"), class_name="message-avatar ai-avatar"),
             rx.box(
                 rx.text("请回应", class_name="message-name"),
-                rx.box(rx.markdown(value), class_name="message-bubble ai-bubble", border=f"2px solid {colors['primary']}"),
+                rx.box(
+                    rx.markdown(value),
+                    class_name="message-bubble ai-bubble",
+                    border=f"2px solid {colors['primary']}",
+                ),
                 class_name="message-content",
             ),
             class_name="chat-message ai-message", spacing="3",

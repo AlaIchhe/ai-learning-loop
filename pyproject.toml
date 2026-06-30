@@ -135,6 +135,29 @@ web = ["assets/*", "assets/**/*"]
 # 配置文件模板
 socratic_loop = ["py.typed"]
 
+# ── UV 配置 ────────────────────────────────────────────────────────────────
+
+[tool.uv]
+# 兼容旧版 Windows 长路径
+link-mode = "copy"
+
+[tool.uv.sources]
+# 所有依赖从 PyPI 解析（默认）；如有私有源可在此声明
+
+# ── 依赖组（PEP 735 / uv 原生） ────────────────────────────────────────────
+# uv 0.11+ 使用 [dependency-groups] 替代 [tool.uv.dev-dependencies]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=2.0",
+    "pyright>=1.1.400",
+    "pytest>=9.0",
+    "pytest-asyncio>=0.23.0",
+    "build>=1.0",
+    "twine>=5.0",
+]
+
 # ── 开发工具配置 ───────────────────────────────────────────────────────────
 
 [tool.ruff]
